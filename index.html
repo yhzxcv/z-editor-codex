@@ -26,6 +26,7 @@
                aria-label="搜索条目">
         <button class="search-clear" id="q-clear" type="button" aria-label="清空搜索" hidden>✕</button>
       </div>
+      <button class="icon-btn" id="btn-filter" type="button" aria-label="搜索范围" aria-haspopup="true">☑</button>
       <button class="icon-btn" id="btn-settings" type="button" aria-label="设置" aria-haspopup="true">⚙</button>
     </header>
 
@@ -54,6 +55,16 @@
       <button type="button" data-val="light">浅色</button>
       <button type="button" data-val="dark">深色</button>
     </div>
+  </div>
+</div>
+
+<div class="popover" id="filter" hidden>
+  <div class="pop-title">搜索范围</div>
+  <!-- 章节加载完成后由 JS 填充：这里写死就拿不到各章条目数 -->
+  <div class="filter-list" id="filter-list"></div>
+  <div class="pop-actions">
+    <button type="button" data-fa="all">全选</button>
+    <button type="button" data-fa="none">清空</button>
   </div>
 </div>
 

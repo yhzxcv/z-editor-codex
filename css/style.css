@@ -524,6 +524,76 @@ body.is-searching .groupbar { display: none; }
   box-shadow: var(--shot);
 }
 
+/* 搜索范围筛选（浮层里的多选行） */
+.filter-list { padding: 2px 0 2px; }
+.fchk {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--text);
+  text-align: left;
+}
+.fchk:hover { background: var(--bg); }
+.fchk-box {
+  flex: 0 0 auto;
+  width: 17px; height: 17px;
+  border-radius: 5px;
+  border: 1.5px solid var(--line);
+  background: var(--bg);
+  display: grid; place-items: center;
+  font-size: 11px;
+  color: transparent;
+}
+/* 选中态：勾用 --panel，浅色下是白勾配深绿、深色下是深勾配浅绿，两边都够对比 */
+.fchk.on .fchk-box {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--panel);
+}
+.fchk-t { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fchk-n {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+}
+.fchk-note {
+  padding: 7px 8px 2px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--faint);
+}
+
+.pop-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.pop-actions button {
+  flex: 1 1 0;
+  padding: 6px 0;
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: var(--dim);
+  background: var(--bg);
+}
+.pop-actions button:hover { color: var(--text); }
+
+/* 空结果里把「改为搜索全部」做成文字按钮 */
+.link-btn {
+  padding: 0;
+  font: inherit;
+  color: var(--accent-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* ── 复制提示 ───────────────────────────────────────────────────────── */
 .toast {
   position: fixed;

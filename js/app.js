@@ -21,9 +21,12 @@
   var clearBtn = document.getElementById('q-clear');
   var toastEl = document.getElementById('toast');
   var settingsEl = document.getElementById('settings');
+  var filterEl = document.getElementById('filter');
+  var filterList = document.getElementById('filter-list');
 
   var LS_KEY = 'codex.settings.v1';
-  var settings = { format: 'plain', theme: 'auto' };
+  // chapters: null = 全部章节；否则是选中的章节 id 数组（空数组在写入前会被归一成 null）
+  var settings = { format: 'plain', theme: 'auto', chapters: null };
 
   var state = {
     chapter: null,
@@ -90,6 +93,12 @@
         var o = JSON.parse(raw);
         if (o.format === 'plain' || o.format === 'quoted') settings.format = o.format;
         if (o.theme === 'auto' || o.theme === 'light' || o.theme === 'dark') settings.theme = o.theme;
+        // 只做类型校验，不校验 id 是否存在于当前章节表里——这里同步执行，
+        // 而章节是异步加载的，此刻 window.Codex.chapters 还是空的。
+        // 真正的合法性校验推迟到 validateFilter()（章节加载完之后）。
+        if (Array.isArray(o.chapters)) {
+          settings.chapters = o.chapters.filter(function (id) { return typeof id === 'string'; });
+        }
       }
     } catch (e) { /* 隐私模式 / 禁用存储：用默认值即可 */ }
   }
@@ -102,6 +111,67 @@
     var el = document.documentElement;
     if (settings.theme === 'auto') el.removeAttribute('data-theme');
     else el.setAttribute('data-theme', settings.theme);
+  }
+
+  // ── 搜索范围筛选 ──────────────────────────────────────────────────────
+  // 只约束搜索，不约束浏览：浏览态永远是当前章的完整目录。
+  function activeChapters() {
+    if (!settings.chapters) return window.Codex.chapters;
+    var picked = settings.chapters;
+    return window.Codex.chapters.filter(function (ch) { return picked.indexOf(ch.id) >= 0; });
+  }
+
+  function filterIsAll() {
+    return !settings.chapters || settings.chapters.length >= window.Codex.chapters.length;
+  }
+
+  function scopeLabel() {
+    return activeChapters().map(function (ch) { return ch.title; }).join('、');
+  }
+
+  function allIds() {
+    return window.Codex.chapters.map(function (ch) { return ch.id; });
+  }
+
+  // 章节加载完之后调一次：存下来的 id 跟已知章节求交集。
+  // 一个都没剩（章节改名/删章）就落回「全部」，免得卡在「筛选还在、但什么都搜不到」。
+  function validateFilter() {
+    if (!settings.chapters) return;
+    var known = settings.chapters.filter(function (id) { return !!window.Codex.get(id); });
+    settings.chapters = known.length ? known : null;
+  }
+
+  function renderFilter() {
+    var picked = settings.chapters;
+    var html = '';
+    window.Codex.chapters.forEach(function (ch) {
+      var on = !picked || picked.indexOf(ch.id) >= 0;
+      html += '<button class="fchk' + (on ? ' on' : '') + '" type="button" role="checkbox" ' +
+        'aria-checked="' + (on ? 'true' : 'false') + '" data-fch="' + esc(ch.id) + '">' +
+        '<span class="fchk-box" aria-hidden="true">✓</span>' +
+        '<span class="fchk-t">' + esc(ch.title) + '</span>' +
+        '<span class="fchk-n">' + ch.count + '</span></button>';
+    });
+    if (!picked) html += '<div class="fchk-note">现在搜索全部章节。取消勾选即可只搜其中几类。</div>';
+    filterList.innerHTML = html;
+    syncPopoverBtns();
+  }
+
+  // 传空数组或全集都归一成 null（= 全部）：避免「筛了但筛掉一切」这种死状态
+  function setFilter(ids) {
+    var keep = (ids || []).filter(function (id) { return !!window.Codex.get(id); });
+    settings.chapters = keep.length ? keep : null;
+    if (filterIsAll()) settings.chapters = null;
+    saveSettings();
+    renderFilter();
+    if (state.searching) renderContent();
+  }
+
+  function toggleFilterChapter(id) {
+    var picked = settings.chapters ? settings.chapters.slice() : allIds();
+    var i = picked.indexOf(id);
+    if (i >= 0) picked.splice(i, 1); else picked.push(id);
+    setFilter(picked);
   }
 
   // ── 渲染：条目 ────────────────────────────────────────────────────────
@@ -159,13 +229,17 @@
   }
 
   function renderSearch() {
-    var res = window.CodexSearch.search(window.Codex.chapters, state.query);
+    var res = window.CodexSearch.search(activeChapters(), state.query);
     state.rows = res.hits;
 
     if (!res.hits.length) {
       content.innerHTML = '<div class="empty">' +
         '<b>没有匹配「' + esc(state.query) + '」的条目</b>' +
         '<p>可以试试中文名、代码片段，或拼音首字母（<code>jrsz</code> → 巨人僵尸）。</p>' +
+        (filterIsAll() ? '' :
+          '<p>当前搜索范围是 ' + esc(scopeLabel()) +
+          '，也可能是被范围挡住了：<button class="link-btn" type="button" data-fa="reset">' +
+          '改为搜索全部</button></p>') +
         '</div>';
       return;
     }
@@ -328,10 +402,29 @@
   function openSide() { sidebar.classList.add('open'); scrim.classList.add('open'); }
   function closeSide() { sidebar.classList.remove('open'); scrim.classList.remove('open'); }
 
-  function toggleSettings(force) {
-    var show = force === undefined ? settingsEl.hidden : force;
-    settingsEl.hidden = !show;
-    document.getElementById('btn-settings').classList.toggle('on', show);
+  // 两个浮层都是 position: fixed; right: 10px，同时开必叠在一起 —— 所以按单例开关处理。
+  // sticky 是「浮层关着也要保持高亮」的额外条件：筛选按钮得在筛选生效期间一直亮着，
+  // 否则用户看不出自己还开着筛选。
+  var POPOVERS = [
+    { el: settingsEl, btn: 'btn-settings', sticky: function () { return false; } },
+    { el: filterEl, btn: 'btn-filter', sticky: function () { return !filterIsAll(); } }
+  ];
+
+  function syncPopoverBtns() {
+    POPOVERS.forEach(function (p) {
+      document.getElementById(p.btn).classList.toggle('on', !p.el.hidden || p.sticky());
+    });
+  }
+
+  function togglePopover(which, force) {
+    var show = force === undefined ? which.el.hidden : force;
+    POPOVERS.forEach(function (p) { p.el.hidden = p !== which || !show; });
+    syncPopoverBtns();
+  }
+
+  function closePopovers() {
+    POPOVERS.forEach(function (p) { p.el.hidden = true; });
+    syncPopoverBtns();
   }
 
   function syncSettingsUI() {
@@ -350,10 +443,11 @@
     content.addEventListener('scroll', onScroll, { passive: true });
 
     content.addEventListener('click', function (ev) {
-      var row = ev.target.closest ? ev.target.closest('.item') : null;
-      if (!row) return;
-      var rec = state.rows[+row.getAttribute('data-r')];
-      if (rec) doCopy(rec.it, row);
+      var hit = ev.target.closest ? ev.target.closest('.item,[data-fa="reset"]') : null;
+      if (!hit) return;
+      if (hit.hasAttribute('data-fa')) { setFilter(allIds()); return; }
+      var rec = state.rows[+hit.getAttribute('data-r')];
+      if (rec) doCopy(rec.it, hit);
     });
 
     chapterbar.addEventListener('click', function (ev) {
@@ -389,7 +483,7 @@
 
     document.getElementById('btn-settings').addEventListener('click', function (ev) {
       ev.stopPropagation();
-      toggleSettings();
+      togglePopover(POPOVERS[0]);
     });
     settingsEl.addEventListener('click', function (ev) {
       ev.stopPropagation();
@@ -401,10 +495,25 @@
       if (key === 'theme') applyTheme();
       syncSettingsUI();
     });
-    document.addEventListener('click', function () { toggleSettings(false); });
+
+    document.getElementById('btn-filter').addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      togglePopover(POPOVERS[1]);
+    });
+    filterEl.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      var row = ev.target.closest ? ev.target.closest('button[data-fch]') : null;
+      if (row) { toggleFilterChapter(row.getAttribute('data-fch')); return; }
+      var act = ev.target.closest ? ev.target.closest('button[data-fa]') : null;
+      if (!act) return;
+      // 清空 → setFilter 会归一成 null（= 全部）：不设「一个都不选」的死状态
+      setFilter(act.getAttribute('data-fa') === 'all' ? allIds() : []);
+    });
+
+    document.addEventListener('click', closePopovers);
 
     document.addEventListener('keydown', function (ev) {
-      if (ev.key === 'Escape') { closeSide(); toggleSettings(false); }
+      if (ev.key === 'Escape') { closeSide(); closePopovers(); }
       // 「/」或 Ctrl+K 直接聚焦搜索
       var typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
       if (!typing && (ev.key === '/' || (ev.key === 'k' && (ev.ctrlKey || ev.metaKey)))) {
@@ -447,6 +556,9 @@
           '</div>';
         return;
       }
+      // 章节齐了才能校验筛选里存的 id、才拿得到各章条目数
+      validateFilter();
+      renderFilter();
       pickChapter(window.Codex.chapters[0].id);
     });
   }
