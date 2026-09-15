@@ -407,16 +407,28 @@
 
   // ── 复制 ──────────────────────────────────────────────────────────────
   // 复制格式：plain 裸代码 / quoted 带引号 / rtid 完整 RTID 语句。
-  // RTID 的表名后缀取自章节数据（data/ch-*.js 里的 rtid），章节没写就不包 ——
-  // 宁可少包一层，也不要把代码塞进一个错的表名里。
+  // RTID 的表名后缀取自数据：章节的 rtid 打底，条目级 rtid 可以盖掉它。
+  // 拼不出 RTID 时**回退成带引号，不是回退成裸代码**——勾了 RTID 的人要的是一个
+  // 能直接粘进关卡 JSON 的字符串字面量，裸代码在那个语境下一样是错的。
   // 注意别把这个函数叫成 copyText：上面 61 行的剪贴板助手就叫这个名字，
   // 同名函数声明后者胜，会把它整个顶掉（复制全废）。
+  function rtidTable(it, ch) {
+    // it.rtid 只在数据里真写了这个键时才存在，见 js/codex.js 的 normItem：
+    // 没写＝跟随章节，写空串＝这条不支持。两种情况不能压成一种。
+    if (it && it.rtid !== undefined) return it.rtid;
+    return (ch && ch.rtid) || '';
+  }
+
+  function quote(code) { return '"' + code + '"'; }
+
   function formatCopy(it, ch) {
-    if (settings.format === 'rtid' && it.code && ch && ch.rtid) {
-      return 'RTID(' + it.code + '@' + ch.rtid + ')';
+    var code = (it && it.code) || '';
+    if (settings.format === 'rtid') {
+      var table = rtidTable(it, ch);
+      return table ? 'RTID(' + code + '@' + table + ')' : quote(code);
     }
-    if (settings.format === 'quoted') return '"' + it.code + '"';
-    return it.code;
+    if (settings.format === 'quoted') return quote(code);
+    return code;
   }
 
   function doCopy(rec, rowEl) {

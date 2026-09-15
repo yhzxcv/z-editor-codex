@@ -14,12 +14,17 @@ window.Codex = (function () {
   var byId = {};
 
   function normItem(it) {
-    return {
+    var out = {
       name: (it.name || '').trim(),
       code: (it.code || '').trim(),
       src: (it.src || '').trim(),
       note: (it.note || '').trim()
     };
+    // 条目级 rtid 覆盖章节的。**只有数据里真写了这个键才带上**：
+    // 「没写」＝跟随章节，「写成空串」＝这一条明确不支持 RTID（复制时回退带引号），
+    // 是两件事。所以这里不能写成 (it.rtid || '') 一把梭，那会把两种情况压成一种。
+    if (it.rtid !== undefined) out.rtid = String(it.rtid).trim();
+    return out;
   }
 
   function normGroup(g) {

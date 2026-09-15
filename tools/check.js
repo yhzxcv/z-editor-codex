@@ -49,7 +49,14 @@ for (const ch of Codex.chapters) {
 
   ok(bad.length === 0, `${ch.id} 字段完整`, bad.length ? bad.slice(0, 5).join('; ') : `${ch.count} 条`);
   ok(ch.rtid === '' || RTID_TABLES.includes(ch.rtid), `${ch.id} rtid 表名合法`,
-    ch.rtid ? `RTID(code@${ch.rtid})` : '（未声明，该章只复制裸代码）');
+    ch.rtid ? `RTID(code@${ch.rtid})` : '（未声明，该章复制时回退带引号）');
+  // 条目级 rtid 同样拦一道。空串是「这条明确不支持 RTID」的合法写法，
+  // 不是错；有值的才必须落在白名单里。
+  const badIt = ch.items.filter(i => i.rtid !== undefined && i.rtid !== '' && !RTID_TABLES.includes(i.rtid));
+  const noIt = ch.items.filter(i => i.rtid === '').length;
+  ok(badIt.length === 0, `${ch.id} 条目级 rtid 表名合法`,
+    badIt.length ? badIt.slice(0, 5).map(i => `${i.name}@${i.rtid}`).join('; ')
+                 : (noIt ? `${noIt} 条声明不支持 RTID（复制时回退带引号）` : '无条目级覆盖'));
   ok(empties.length === 0, `${ch.id} 无空分组`, empties.join('、'));
   ok(ch.items.length === ch.count, `${ch.id} 条目数与统计一致`);
   // data-i 用的是扁平下标，重复会导致点错行
