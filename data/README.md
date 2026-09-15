@@ -42,8 +42,9 @@ Codex.add({
 | `intro` | 否 | 章节前言，显示在章节标题下面 |
 
 `rtid` 只影响「复制格式 → RTID语句」这一档：选中时复制的内容是
-`RTID(<code>@<rtid>)`，比如植物章声明 `rtid: 'PlantTypes'`，
-点豌豆射手复制出来就是 `RTID(peashooter@PlantTypes)`。
+`"RTID(<code>@<rtid>)"`（**连外层引号一起**，因为关卡 JSON 里的值就是这个形状），
+比如植物章声明 `rtid: 'PlantTypes'`，点豌豆射手复制出来就是
+`"RTID(peashooter@PlantTypes)"`。
 
 **不支持 RTID 的内容不写这个字段就行，复制时会回退成带引号**
 （`"peashooter"`，不是裸代码）——勾了 RTID 的人要的是能直接粘进关卡 JSON 的

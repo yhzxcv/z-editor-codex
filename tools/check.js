@@ -49,7 +49,7 @@ for (const ch of Codex.chapters) {
 
   ok(bad.length === 0, `${ch.id} 字段完整`, bad.length ? bad.slice(0, 5).join('; ') : `${ch.count} 条`);
   ok(ch.rtid === '' || RTID_TABLES.includes(ch.rtid), `${ch.id} rtid 表名合法`,
-    ch.rtid ? `RTID(code@${ch.rtid})` : '（未声明，该章复制时回退带引号）');
+    ch.rtid ? `"RTID(code@${ch.rtid})"` : '（未声明，该章复制时回退带引号）');
   // 条目级 rtid 同样拦一道。空串是「这条明确不支持 RTID」的合法写法，
   // 不是错；有值的才必须落在白名单里。
   const badIt = ch.items.filter(i => i.rtid !== undefined && i.rtid !== '' && !RTID_TABLES.includes(i.rtid));

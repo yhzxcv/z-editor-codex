@@ -79,7 +79,9 @@
   }
 
   var toastTimer = null;
-  function toast(msg, isErr) {
+  // ms 是可选停留时长：默认成功 1500 / 失败 2600。带说明的复制结果（比如 RTID 回退）
+  // 比普通「已复制」多一句要读的话，用它把时长拉长，否则还没看完就没了。
+  function toast(msg, isErr, ms) {
     toastEl.textContent = msg;
     toastEl.classList.toggle('err', !!isErr);
     toastEl.hidden = false;
@@ -88,7 +90,7 @@
     toastTimer = setTimeout(function () {
       toastEl.classList.remove('show');
       setTimeout(function () { toastEl.hidden = true; }, 200);
-    }, isErr ? 2600 : 1500);
+    }, ms || (isErr ? 2600 : 1500));
   }
 
   // ── 设置 ──────────────────────────────────────────────────────────────
@@ -408,8 +410,12 @@
   // ── 复制 ──────────────────────────────────────────────────────────────
   // 复制格式：plain 裸代码 / quoted 带引号 / rtid 完整 RTID 语句。
   // RTID 的表名后缀取自数据：章节的 rtid 打底，条目级 rtid 可以盖掉它。
-  // 拼不出 RTID 时**回退成带引号，不是回退成裸代码**——勾了 RTID 的人要的是一个
-  // 能直接粘进关卡 JSON 的字符串字面量，裸代码在那个语境下一样是错的。
+  // **RTID 档连外层引号一起复制**（`"RTID(xxx@Table)"`）：关卡 JSON 里的值本来
+  // 就是这个形状（PvzDataModels.kt 的 Type 字段默认值、代码图鉴.txt 里的样例都是
+  // 带引号的），粘进 JSON 时缺了引号还得自己补。
+  // 拼不出 RTID 时回退成带引号，不是回退成裸代码——两个理由：勾了 RTID 的人要的是
+  // 能直接粘进 JSON 的字符串字面量；而且 RTID 档本身就是带引号的，回退后形状一致。
+  // 回退时 toast 里会多一句说明，见 formatCopy 的返回值。
   // 注意别把这个函数叫成 copyText：上面 61 行的剪贴板助手就叫这个名字，
   // 同名函数声明后者胜，会把它整个顶掉（复制全废）。
   function rtidTable(it, ch) {
@@ -425,16 +431,20 @@
     var code = (it && it.code) || '';
     if (settings.format === 'rtid') {
       var table = rtidTable(it, ch);
-      return table ? 'RTID(' + code + '@' + table + ')' : quote(code);
+      if (table) return { text: quote('RTID(' + code + '@' + table + ')'), note: '' };
+      // 回退**必须出声**：静默换一种结果会被当成 bug。这不是假想——数据文件被旧缓存
+      // 挡住时（手机上还是没加 rtid 的 data/ch-*.js，但 js/app.js 已经是新的）就真
+      // 发生过一次，表现是「选了 RTID 却复制出带引号的裸代码」，看着像 RTID 坏了。
+      return { text: quote(code), note: '（本章无 RTID 表，回退带引号）' };
     }
-    if (settings.format === 'quoted') return quote(code);
-    return code;
+    if (settings.format === 'quoted') return { text: quote(code), note: '' };
+    return { text: code, note: '' };
   }
 
   function doCopy(rec, rowEl) {
-    var text = formatCopy(rec.it, rec.ch);
-    copyText(text).then(function () {
-      toast('已复制 ' + text);
+    var r = formatCopy(rec.it, rec.ch);
+    copyText(r.text).then(function () {
+      toast('已复制 ' + r.text + r.note, false, r.note ? 2600 : 0);
       var icon = rowEl.querySelector('.it-copy');
       rowEl.classList.add('copied');
       if (icon) icon.innerHTML = ICON_CHECK;
