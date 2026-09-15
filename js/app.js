@@ -27,7 +27,10 @@
   var LS_KEY = 'codex.settings.v1';
   // chapters: null = 全部章节；否则是选中的章节 id 数组。
   // 空数组是**合法状态**（= 什么都不搜），只有勾满全部才归一成 null
-  var settings = { format: 'plain', theme: 'auto', chapters: null };
+  // density: 条目密度档位，见 css 里「条目密度档位」那段；standard 是改动前的样子
+  var settings = { format: 'plain', theme: 'auto', chapters: null, density: 'standard' };
+
+  var DENSITIES = ['standard', 'compact', 'tight', 'single'];
 
   var state = {
     chapter: null,
@@ -94,6 +97,7 @@
         var o = JSON.parse(raw);
         if (o.format === 'plain' || o.format === 'quoted') settings.format = o.format;
         if (o.theme === 'auto' || o.theme === 'light' || o.theme === 'dark') settings.theme = o.theme;
+        if (DENSITIES.indexOf(o.density) >= 0) settings.density = o.density;
         // 只做类型校验，不校验 id 是否存在于当前章节表里——这里同步执行，
         // 而章节是异步加载的，此刻 window.Codex.chapters 还是空的。
         // 真正的合法性校验推迟到 validateFilter()（章节加载完之后）。
@@ -112,6 +116,14 @@
     var el = document.documentElement;
     if (settings.theme === 'auto') el.removeAttribute('data-theme');
     else el.setAttribute('data-theme', settings.theme);
+  }
+
+  // 跟主题一个套路：standard 是 :root 的默认值，所以去掉属性而不是写上去。
+  // 也跟主题一样必须在首次渲染前调，否则会先按标准档画一遍再跳成紧凑。
+  function applyDensity() {
+    var el = document.documentElement;
+    if (settings.density === 'standard') el.removeAttribute('data-density');
+    else el.setAttribute('data-density', settings.density);
   }
 
   // ── 搜索范围筛选 ──────────────────────────────────────────────────────
@@ -503,6 +515,7 @@
       settings[key] = b.getAttribute('data-val');
       saveSettings();
       if (key === 'theme') applyTheme();
+      if (key === 'density') applyDensity();
       syncSettingsUI();
     });
 
@@ -551,6 +564,7 @@
   function boot() {
     loadSettings();
     applyTheme();
+    applyDensity();
     syncSettingsUI();
     bind();
 
