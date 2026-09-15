@@ -61,17 +61,15 @@ Codex.add({
 **加章节**：新建 `data/ch-xxx.js`，然后在 `js/chapters.js` 的 `CODEX_MANIFEST` 数组里加一行路径。
 数组顺序就是章节 chips 的顺序。
 
-**从 TXT 批量导入**：`tools/migrate.py` 还在，新章节可以直接用它从 `代码图鉴.txt` 生成：
+**从 TXT 批量导入**：`tools/migrate.py` 是当初把 `代码图鉴.txt` 一次性导成数据文件的工具。
+**本仓库只放网站，所以它和 TXT 源文件都不在这里**，留在编辑器仓库 Z-Editor 里
+（工具最后的版本在 Z-Editor 的 `1bfc78f` 提交，路径 `codex-site/tools/migrate.py`）。
 
-```bash
-python tools/migrate.py --preview obstacle    # 先看会生成什么，不落盘
-python tools/migrate.py obstacle              # 生成 data/ch-obstacle.js
-python tools/migrate.py --force obstacle      # 覆盖已存在的文件
-```
+其余 7 章还要用它，实际流程是：**在 Z-Editor 那份检出里跑**（TXT 就在那儿，工具按「`codex-site`
+的上一级」找 TXT 的路径假设在那里也成立），生成 `data/ch-*.js` 之后再把文件拷进本仓库。
 
-**已存在的文件默认不覆盖**。这些数据文件是手工维护的唯一真源，误跑一次
-`python tools/migrate.py`（不给参数＝处理全部章节）会把手工改动整个冲掉，
-所以加了这个闸。植物和僵尸两章尤其不能再跑迁移。
+工具**默认不覆盖已存在的文件**——这些数据文件是手工维护的唯一真源，误跑一次
+（不给参数＝处理全部章节）会把手工改动整个冲掉。植物和僵尸两章尤其不能再跑迁移。
 
 `代码图鉴.txt` 的格式很随意，解析规则只会越来越复杂，所以新内容更推荐直接编辑数据文件。
 
