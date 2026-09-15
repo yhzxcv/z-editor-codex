@@ -660,24 +660,36 @@ body.is-searching .groupbar { display: none; }
 /* ── 内容区滚动条 ───────────────────────────────────────────────────── */
 /* 按「有没有精确指针」判定，不按宽度：窗口拉窄的桌面用户也该有能拖的滚动条，
    而触屏平板即便 ≥940px 也不该多出一根常驻粗条。
-   关键点：Chromium 下一旦给 ::-webkit-scrollbar 指定了宽度，就会退出「悬浮滚动条」
-   模式、改用经典常驻滚动条 —— 悬浮条很细且静止时淡出，那正是抓不住、拖不动的原因。
-   border + background-clip 让拇指视觉上收窄一点，但整条命中区仍是 14px。 */
+
+   关键点（踩过）：Chromium 里一旦写了标准属性 scrollbar-color / scrollbar-width，
+   同一元素上的 ::-webkit-scrollbar 就被整个忽略 —— 宽度和拇指配色一起失效，
+   退回 Chrome 默认滚动条（Win11 上是细的、静止淡出的悬浮条，抓不住）。
+   实测：只写 scrollbar-color 时占宽 15px（默认）；把它改成 auto 才轮到
+   ::-webkit-scrollbar 生效，占宽立刻变成规则里写的值。所以两者**不能共存**，
+   Firefox 专用的标准属性必须用 @supports 隔开。
+   另一条：::-webkit-scrollbar 一旦指定宽度就会退出悬浮条模式、改用常驻滚动条，
+   这正是「能拖」的来源。border + background-clip 让拇指视觉收窄，命中区仍是 14px。 */
 @media (pointer: fine) {
   .content {
     scrollbar-gutter: stable;              /* 滚动条出现/消失时内容不横向跳 */
-    scrollbar-width: auto;                 /* Firefox：auto 比 thin 粗 */
-    scrollbar-color: var(--faint) transparent;
   }
   .content::-webkit-scrollbar { width: 14px; }
   .content::-webkit-scrollbar-track { background: transparent; }
   .content::-webkit-scrollbar-thumb {
-    background: var(--faint);
+    background: var(--dim);                /* --faint 压在 --bg 上几乎看不出，用 --dim */
     border-radius: 7px;
     border: 2px solid transparent;
     background-clip: padding-box;
   }
-  .content::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+  .content::-webkit-scrollbar-thumb:hover { background: var(--text); }
+}
+
+/* Firefox 不认 ::-webkit-scrollbar，只能走标准属性。这条在 Chromium 里不匹配，
+   所以不会反过来把上面那套关掉。 */
+@supports not selector(::-webkit-scrollbar) {
+  @media (pointer: fine) {
+    .content { scrollbar-width: auto; scrollbar-color: var(--dim) transparent; }
+  }
 }
 
 /* ── 动效偏好 ───────────────────────────────────────────────────────── */

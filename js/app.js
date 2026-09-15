@@ -133,12 +133,12 @@
     return window.Codex.chapters.map(function (ch) { return ch.id; });
   }
 
-  // 章节加载完之后调一次：存下来的 id 跟已知章节求交集。
-  // 一个都没剩（章节改名/删章）就落回「全部」，免得卡在「筛选还在、但什么都搜不到」。
+  // 章节加载完之后调一次：存下来的 id 跟已知章节求交集，去掉已经不存在的。
+  // 空数组是合法状态（= 什么都不搜），不在这里落回「全部」。
   function validateFilter() {
     if (!settings.chapters) return;
     var known = settings.chapters.filter(function (id) { return !!window.Codex.get(id); });
-    settings.chapters = known.length ? known : null;
+    if (known.length !== settings.chapters.length) settings.chapters = known;
   }
 
   function renderFilter() {
@@ -152,15 +152,17 @@
         '<span class="fchk-t">' + esc(ch.title) + '</span>' +
         '<span class="fchk-n">' + ch.count + '</span></button>';
     });
+    // picked 为 [] 是真值，所以这两条不会互相吞掉
     if (!picked) html += '<div class="fchk-note">现在搜索全部章节。取消勾选即可只搜其中几类。</div>';
+    else if (!picked.length) html += '<div class="fchk-note">一个都没勾，搜索不会有结果。</div>';
     filterList.innerHTML = html;
     syncPopoverBtns();
   }
 
-  // 传空数组或全集都归一成 null（= 全部）：避免「筛了但筛掉一切」这种死状态
+  // 空数组就是「什么都不搜」——「清空」之后应当保持空着，让用户接着勾他要的那一类。
+  // 只有真的勾满全部才归一成 null（等价但存储更干净）。
   function setFilter(ids) {
-    var keep = (ids || []).filter(function (id) { return !!window.Codex.get(id); });
-    settings.chapters = keep.length ? keep : null;
+    settings.chapters = (ids || []).filter(function (id) { return !!window.Codex.get(id); });
     if (filterIsAll()) settings.chapters = null;
     saveSettings();
     renderFilter();
@@ -228,6 +230,16 @@
     renderGroupbar();
   }
 
+  // 空结果时给一句「是不是被搜索范围挡住了」——范围为空时说法要更直接
+  var RESET_BTN = '<button class="link-btn" type="button" data-fa="reset">改为搜索全部</button>';
+  function scopeHintHTML() {
+    if (filterIsAll()) return '';
+    if (!activeChapters().length) {
+      return '<p>搜索范围里一个类别都没勾，所以不会有结果：' + RESET_BTN + '</p>';
+    }
+    return '<p>当前搜索范围是 ' + esc(scopeLabel()) + '，也可能是被范围挡住了：' + RESET_BTN + '</p>';
+  }
+
   function renderSearch() {
     var res = window.CodexSearch.search(activeChapters(), state.query);
     state.rows = res.hits;
@@ -236,10 +248,7 @@
       content.innerHTML = '<div class="empty">' +
         '<b>没有匹配「' + esc(state.query) + '」的条目</b>' +
         '<p>可以试试中文名、代码片段，或拼音首字母（<code>jrsz</code> → 巨人僵尸）。</p>' +
-        (filterIsAll() ? '' :
-          '<p>当前搜索范围是 ' + esc(scopeLabel()) +
-          '，也可能是被范围挡住了：<button class="link-btn" type="button" data-fa="reset">' +
-          '改为搜索全部</button></p>') +
+        scopeHintHTML() +
         '</div>';
       return;
     }
