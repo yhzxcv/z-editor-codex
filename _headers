@@ -4,14 +4,15 @@
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
+  Cache-Control: public, max-age=0, must-revalidate
 
-# 站点没有构建步骤、文件名也不带哈希，所以缓存靠部署来失效：
-# CF Pages 每次部署都会清掉自己的缓存，改了东西推上去就会立刻生效。
-/css/*
-  Cache-Control: public, max-age=3600
-
-/js/*
-  Cache-Control: public, max-age=3600
-
-/data/*
-  Cache-Control: public, max-age=3600
+# 为什么全站都不许浏览器长时间缓存：
+#
+# 站点没有构建步骤、文件名也不带内容哈希，所以「缓存失效」只能靠部署。
+# 但部署清的是 Cloudflare 边缘节点的缓存，管不到**访客浏览器**里已经存下的副本。
+# 曾经这里给 /css/* /js/* /data/* 配过 max-age=3600，结果是：
+# index.html 走 CF 默认的「每次回源校验」所以是新的，而 js/css 一小时之内不回源所以是旧的——
+# 新按钮画得出来但点了没反应、新样式不出现。这类「半个新版本」最难排查。
+#
+# max-age=0 + must-revalidate = 每次都回源校验：文件没变 CF 回 304（全站合计才 240KB），
+# 变了就立刻生效。以后改 css/js 直接推就行，不需要再动这个文件。

@@ -7,7 +7,12 @@
 <meta name="description" content="植物大战僵尸 2 关卡编辑器代码图鉴：按主题分类，支持中文名、代码、拼音首字母检索，点击即复制。">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1c2024" media="(prefers-color-scheme: dark)">
-<link rel="stylesheet" href="css/style.css">
+<!-- 下面两个 ?v=2 是一次性的缓存作废标记，不是常规做法：
+     上线初期 _headers 给 /css/* /js/* 配过 max-age=3600，导致老访客浏览器里
+     存着旧 app.js / style.css（一小时内不回源），而 index.html 是新的 ——
+     表现为新按钮点不动、新样式不出现。改完 _headers 后这种「半个新版本」
+     不会再发生，所以以后改这两个文件**不需要**再动版本号。 -->
+<link rel="stylesheet" href="css/style.css?v=2">
 </head>
 <body>
 
@@ -75,6 +80,6 @@
 <script src="js/pinyin-table.js"></script>
 <script src="js/codex.js"></script>
 <script src="js/search.js"></script>
-<script src="js/app.js"></script>
+<script src="js/app.js?v=2"></script>
 </body>
 </html>
