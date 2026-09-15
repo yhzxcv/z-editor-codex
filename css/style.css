@@ -587,6 +587,29 @@ body.is-searching .groupbar { display: none; }
   .item:hover .it-copy, .item.copied .it-copy { opacity: 1; }
 }
 
+/* ── 内容区滚动条 ───────────────────────────────────────────────────── */
+/* 按「有没有精确指针」判定，不按宽度：窗口拉窄的桌面用户也该有能拖的滚动条，
+   而触屏平板即便 ≥940px 也不该多出一根常驻粗条。
+   关键点：Chromium 下一旦给 ::-webkit-scrollbar 指定了宽度，就会退出「悬浮滚动条」
+   模式、改用经典常驻滚动条 —— 悬浮条很细且静止时淡出，那正是抓不住、拖不动的原因。
+   border + background-clip 让拇指视觉上收窄一点，但整条命中区仍是 14px。 */
+@media (pointer: fine) {
+  .content {
+    scrollbar-gutter: stable;              /* 滚动条出现/消失时内容不横向跳 */
+    scrollbar-width: auto;                 /* Firefox：auto 比 thin 粗 */
+    scrollbar-color: var(--faint) transparent;
+  }
+  .content::-webkit-scrollbar { width: 14px; }
+  .content::-webkit-scrollbar-track { background: transparent; }
+  .content::-webkit-scrollbar-thumb {
+    background: var(--faint);
+    border-radius: 7px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .content::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+}
+
 /* ── 动效偏好 ───────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: .01ms !important; animation-duration: .01ms !important; }
