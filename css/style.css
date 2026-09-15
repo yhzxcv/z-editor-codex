@@ -626,12 +626,13 @@ body.is-searching .groupbar { display: none; }
 }
 .pop-row > span { font-size: 13px; color: var(--dim); }
 
-/* 选项多的行改上下排。浮层固定 250px 宽，内容区只有 220px：
+/* 设置浮层里每行都改上下排（.stack）。浮层固定 250px 宽，内容区只有 220px：
      · 条目密度（4 段）每段实测 49px → 段 200px，加标签 52px 和间距 10px 要 262px，必溢出
      · 复制格式（3 段）横排实测「段 164px = 可用 164px」，零余量 —— 字体稍有出入就溢出，
        而且每段只剩 49px，手机上不好点
-   竖排后按钮等分整行（实测 72px），既稳又好点。主题那行是 3 段短文案，
-   横排还余 51px，保持横排不动。 */
+     · 主题（3 段短文案）横排本来还余 51px、装得下，但三行里两行竖排一行横排，
+       标签与按钮左右都对不齐，看着像没做完 —— 统一竖排。
+   竖排后按钮等分整行（实测 72px），既齐又好点。 */
 .pop-row.stack { display: block; }
 .pop-row.stack > span { display: block; margin-bottom: 6px; }
 .pop-row.stack .seg { display: flex; }
