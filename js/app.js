@@ -25,7 +25,8 @@
   var filterList = document.getElementById('filter-list');
 
   var LS_KEY = 'codex.settings.v1';
-  // chapters: null = 全部章节；否则是选中的章节 id 数组（空数组在写入前会被归一成 null）
+  // chapters: null = 全部章节；否则是选中的章节 id 数组。
+  // 空数组是**合法状态**（= 什么都不搜），只有勾满全部才归一成 null
   var settings = { format: 'plain', theme: 'auto', chapters: null };
 
   var state = {
@@ -515,7 +516,7 @@
       if (row) { toggleFilterChapter(row.getAttribute('data-fch')); return; }
       var act = ev.target.closest ? ev.target.closest('button[data-fa]') : null;
       if (!act) return;
-      // 清空 → setFilter 会归一成 null（= 全部）：不设「一个都不选」的死状态
+      // 清空 → 传 []，就是「一个都不搜」，保持空着让用户接着勾；只有全选才归一成 null
       setFilter(act.getAttribute('data-fa') === 'all' ? allIds() : []);
     });
 
