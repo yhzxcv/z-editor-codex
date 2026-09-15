@@ -66,6 +66,10 @@ window.Codex = (function () {
     var c = {
       id: ch.id,
       title: (ch.title || ch.id).trim(),
+      // RTID 表名后缀（植物 PlantTypes / 僵尸 ZombieTypes / 障碍物 GriditemTypes）。
+      // 复制格式选「RTID语句」时拼成 RTID(code@后缀)；留空则该章只复制裸代码。
+      // 放在章节数据里而不是 UI 里，是为了维持「新增章节不用改 UI」这条约定。
+      rtid: (ch.rtid || '').trim(),
       intro: (ch.intro || []).slice(),
       groups: (ch.groups || []).map(normGroup)
     };

@@ -31,6 +31,8 @@
   var settings = { format: 'plain', theme: 'auto', chapters: null, density: 'standard' };
 
   var DENSITIES = ['standard', 'compact', 'tight', 'single'];
+  // 复制格式的可选值，跟设置浮层 index.html 里的 data-val 一一对应
+  var FORMATS = ['plain', 'quoted', 'rtid'];
 
   var state = {
     chapter: null,
@@ -95,7 +97,7 @@
       var raw = localStorage.getItem(LS_KEY);
       if (raw) {
         var o = JSON.parse(raw);
-        if (o.format === 'plain' || o.format === 'quoted') settings.format = o.format;
+        if (FORMATS.indexOf(o.format) >= 0) settings.format = o.format;
         if (o.theme === 'auto' || o.theme === 'light' || o.theme === 'dark') settings.theme = o.theme;
         if (DENSITIES.indexOf(o.density) >= 0) settings.density = o.density;
         // 只做类型校验，不校验 id 是否存在于当前章节表里——这里同步执行，
@@ -404,8 +406,21 @@
   }
 
   // ── 复制 ──────────────────────────────────────────────────────────────
-  function doCopy(it, rowEl) {
-    var text = settings.format === 'quoted' ? '"' + it.code + '"' : it.code;
+  // 复制格式：plain 裸代码 / quoted 带引号 / rtid 完整 RTID 语句。
+  // RTID 的表名后缀取自章节数据（data/ch-*.js 里的 rtid），章节没写就不包 ——
+  // 宁可少包一层，也不要把代码塞进一个错的表名里。
+  // 注意别把这个函数叫成 copyText：上面 61 行的剪贴板助手就叫这个名字，
+  // 同名函数声明后者胜，会把它整个顶掉（复制全废）。
+  function formatCopy(it, ch) {
+    if (settings.format === 'rtid' && it.code && ch && ch.rtid) {
+      return 'RTID(' + it.code + '@' + ch.rtid + ')';
+    }
+    if (settings.format === 'quoted') return '"' + it.code + '"';
+    return it.code;
+  }
+
+  function doCopy(rec, rowEl) {
+    var text = formatCopy(rec.it, rec.ch);
     copyText(text).then(function () {
       toast('已复制 ' + text);
       var icon = rowEl.querySelector('.it-copy');
@@ -469,7 +484,7 @@
       if (!hit) return;
       if (hit.hasAttribute('data-fa')) { setFilter(allIds()); return; }
       var rec = state.rows[+hit.getAttribute('data-r')];
-      if (rec) doCopy(rec.it, hit);
+      if (rec) doCopy(rec, hit);
     });
 
     chapterbar.addEventListener('click', function (ev) {

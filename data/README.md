@@ -9,6 +9,7 @@
 Codex.add({
   id: 'zombie',                  // 唯一标识，js/chapters.js 里靠文件名引用
   title: '僵尸代码',              // 章节 chips 上显示的名字
+  rtid: 'ZombieTypes',           // 可选，复制格式选「RTID语句」时用的表名后缀
   intro: [ '……' ],               // 可选，章节前言
   groups: [
     // 形态一：普通分组，直接挂条目
@@ -30,6 +31,23 @@ Codex.add({
 ```
 
 `items` 和 `children` **二选一**。混用的话 `children` 优先，同时挂的 `items` 会被当成一个同名分组处理。
+
+## 章节字段
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `id` | 是 | 唯一标识，设置和 `js/chapters.js` 都引用它，**别改** |
+| `title` | 是 | 章节 chips 上显示的名字 |
+| `rtid` | 否 | RTID 表名后缀，见下 |
+| `intro` | 否 | 章节前言，显示在章节标题下面 |
+
+`rtid` 只影响「复制格式 → RTID语句」这一档：选中时复制的内容是
+`RTID(<code>@<rtid>)`，比如植物章声明 `rtid: 'PlantTypes'`，
+点豌豆射手复制出来就是 `RTID(peashooter@PlantTypes)`。
+
+**留空是合法的**（该章只复制裸代码），但**写错不会报错、只会静默复制出错的东西**，
+所以 `tools/check.js` 里有一道白名单校验（`RTID_TABLES`）。新增章节要支持这一档时，
+先把表名加进那个数组。白名单放在自检工具而不是 UI 里，是为了不让界面耦合具体表名。
 
 ## 条目字段
 
@@ -59,7 +77,8 @@ Codex.add({
 **加分组**：往 `groups` 里加一项。顺序即页面上的显示顺序。
 
 **加章节**：新建 `data/ch-xxx.js`，然后在 `js/chapters.js` 的 `CODEX_MANIFEST` 数组里加一行路径。
-数组顺序就是章节 chips 的顺序。
+数组顺序就是章节 chips 的顺序。如果这一章的代码也按 `RTID(code@表名)` 复制，还要在文件里声明
+`rtid`，并把表名加进 `tools/check.js` 的白名单。
 
 **从 TXT 批量导入**：`tools/migrate.py` 是当初把 `代码图鉴.txt` 一次性导成数据文件的工具。
 **本仓库只放网站，所以它和 TXT 源文件都不在这里**，留在编辑器仓库 Z-Editor 里

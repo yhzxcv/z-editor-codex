@@ -46,11 +46,14 @@
 
 <div class="popover" id="settings" hidden>
   <div class="pop-title">设置</div>
-  <div class="pop-row">
+  <!-- RTID 的表名后缀（@PlantTypes 之类）来自各章数据文件里的 rtid 字段，
+       章节没写就只复制裸代码；这里不用也不能写死映射。 -->
+  <div class="pop-row stack">
     <span>复制格式</span>
     <div class="seg" data-key="format">
       <button type="button" data-val="plain">纯代码</button>
       <button type="button" data-val="quoted">带引号</button>
+      <button type="button" data-val="rtid">RTID语句</button>
     </div>
   </div>
   <div class="pop-row">

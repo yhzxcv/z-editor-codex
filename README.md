@@ -111,6 +111,23 @@ sticky 元素的 offsetTop 会被吸顶位移污染），配合 `position: relat
 如果照原样留着，940px 媒体查询里的写死值会把档位效果整个盖掉。现在拆成 `--lg-*` 补偿量加在
 token 上，标准档下宽屏的最终值跟改动前逐像素一致。
 
+## 复制格式
+
+设置里三档，点条目右侧的复制图标（窄屏是整行）时决定复制出什么：
+
+| 档位 | 复制结果（以 `peashooter` 为例） |
+|---|---|
+| 纯代码（默认） | `peashooter` |
+| 带引号 | `"peashooter"` |
+| RTID语句 | `RTID(peashooter@PlantTypes)` |
+
+RTID 的表名后缀**来自章节数据**（`data/ch-*.js` 里的 `rtid` 字段），不是写死在 UI 里的映射表
+——这样维持「新增章节不用改 UI」这条约定。章节没声明 `rtid` 就退化成纯代码，
+宁可少包一层，也不要把代码塞进一个猜的表名里。
+
+表名写错不会抛错、只会静默复制出错的 RTID，所以 `tools/check.js` 里有一道白名单
+（`RTID_TABLES`），校验故意放在自检工具而不是界面里，UI 不耦合具体表名。
+
 ## 待办
 
 - Service Worker 离线缓存（需要 https 或 localhost，托管方案定了再做）

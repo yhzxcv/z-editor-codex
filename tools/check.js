@@ -28,6 +28,12 @@ function ok(cond, label, extra) {
 console.log(`数据文件 ${files.length} 个\n`);
 
 // ── 结构完整性 ────────────────────────────────────────────────────────
+// 复制格式选「RTID语句」时会拼成 RTID(code@表名)，表名写错不会抛错、
+// 只会静默复制出错的 RTID，所以在这里拦一道。
+// 校验**故意放在自检工具里**而不是 UI 里：UI 只读章节数据里的 rtid、
+// 不耦合具体表名；新增章节要支持这个格式时，往这个数组里加一个表名。
+const RTID_TABLES = ['PlantTypes', 'ZombieTypes', 'GriditemTypes'];
+
 console.log('结构');
 let totalItems = 0, totalGroups = 0;
 for (const ch of Codex.chapters) {
@@ -42,6 +48,8 @@ for (const ch of Codex.chapters) {
   const empties = ch.groupUnits.filter(u => !u.items.length).map(u => u.title);
 
   ok(bad.length === 0, `${ch.id} 字段完整`, bad.length ? bad.slice(0, 5).join('; ') : `${ch.count} 条`);
+  ok(ch.rtid === '' || RTID_TABLES.includes(ch.rtid), `${ch.id} rtid 表名合法`,
+    ch.rtid ? `RTID(code@${ch.rtid})` : '（未声明，该章只复制裸代码）');
   ok(empties.length === 0, `${ch.id} 无空分组`, empties.join('、'));
   ok(ch.items.length === ch.count, `${ch.id} 条目数与统计一致`);
   // data-i 用的是扁平下标，重复会导致点错行

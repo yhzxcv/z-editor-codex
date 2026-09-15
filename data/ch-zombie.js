@@ -1,11 +1,13 @@
 // 代码图鉴 · 僵尸代码
 // 本文件是网站的唯一数据来源，可直接手工增删改。
+// 章节字段：id 唯一标识（必填）｜title 章节名（必填）｜rtid RTID 表名后缀（可选）｜intro 章节前言（可选）
 // 条目字段：name 中文名（必填）｜code 代码（必填）｜src 来源小字（可选）｜note 备注小字（可选）
 // 分组字段：title 标题｜items 条目列表｜children 子分组（与 items 二选一）
 
 Codex.add({
   id: 'zombie',
   title: '僵尸代码',
+  rtid: 'ZombieTypes',
   intro: [
     '按照中文版世界归属排放(非严格意义)',
     '僵尸名称大部分参考了游戏僵尸图鉴和官网参考',
