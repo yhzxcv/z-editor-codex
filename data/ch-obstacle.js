@@ -305,7 +305,6 @@ Codex.add({
             { name: '暗影荚兰五阶遗留旋风', code: 'shadowvanilla_hurricane' },
             { name: '暗影荚兰装扮大招黑洞', code: 'shadowvanilla_shadowenergy' },
             { name: '冰莲水滩', code: 'icelotus_dropwater' },
-            { name: '冰仙子装扮大招冰坑', code: 'icepit' },
             { name: '地星发射井辐射气', code: 'radiation' },
             { name: '花盆', code: 'flowerpot' },
             { name: '黄油毛茛的黄油', code: 'butter' },
