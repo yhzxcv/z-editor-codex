@@ -32,7 +32,10 @@ console.log(`数据文件 ${files.length} 个\n`);
 // 只会静默复制出错的 RTID，所以在这里拦一道。
 // 校验**故意放在自检工具里**而不是 UI 里：UI 只读章节数据里的 rtid、
 // 不耦合具体表名；新增章节要支持这个格式时，往这个数组里加一个表名。
-const RTID_TABLES = ['PlantTypes', 'ZombieTypes', 'GriditemTypes'];
+// CurrentLevel 是关卡文件里自定义的僵尸用的表（僵尸章「可自定义僵尸」那一组），
+// 走的是条目级 rtid 覆盖，不是章节级的。
+// LevelModules 是地图章（XxxStage 那一批场景代码）的表。
+const RTID_TABLES = ['PlantTypes', 'ZombieTypes', 'GriditemTypes', 'CurrentLevel', 'LevelModules'];
 
 console.log('结构');
 let totalItems = 0, totalGroups = 0;
@@ -53,10 +56,19 @@ for (const ch of Codex.chapters) {
   // 条目级 rtid 同样拦一道。空串是「这条明确不支持 RTID」的合法写法，
   // 不是错；有值的才必须落在白名单里。
   const badIt = ch.items.filter(i => i.rtid !== undefined && i.rtid !== '' && !RTID_TABLES.includes(i.rtid));
+  // 合法覆盖也要报出来。以前只统计「非法」和「空串」两种，条目级 rtid 又没人用，
+  // 于是有覆盖也打印「无条目级覆盖」——等真用上了，这句话就成了误导。
+  const setIt = ch.items.filter(i => i.rtid !== undefined && i.rtid !== '');
   const noIt = ch.items.filter(i => i.rtid === '').length;
+  const parts = [];
+  if (setIt.length) {
+    parts.push(`${setIt.length} 条覆盖为 ` +
+      [...new Set(setIt.map(i => '@' + i.rtid))].join('、'));
+  }
+  if (noIt) parts.push(`${noIt} 条声明不支持 RTID（复制时回退带引号）`);
   ok(badIt.length === 0, `${ch.id} 条目级 rtid 表名合法`,
     badIt.length ? badIt.slice(0, 5).map(i => `${i.name}@${i.rtid}`).join('; ')
-                 : (noIt ? `${noIt} 条声明不支持 RTID（复制时回退带引号）` : '无条目级覆盖'));
+                 : (parts.length ? parts.join('；') : '无条目级覆盖'));
   ok(empties.length === 0, `${ch.id} 无空分组`, empties.join('、'));
   ok(ch.items.length === ch.count, `${ch.id} 条目数与统计一致`);
   // data-i 用的是扁平下标，重复会导致点错行
