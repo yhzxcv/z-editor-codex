@@ -10,5 +10,7 @@
 window.CODEX_MANIFEST = [
   'data/ch-plant.js',
   'data/ch-zombie.js',
-  'data/ch-obstacle.js'
+  'data/ch-griditem.js',
+  'data/ch-map.js',
+  'data/ch-status.js'
 ];

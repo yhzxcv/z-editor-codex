@@ -1,11 +1,11 @@
 // 代码图鉴 · 障碍物代码
 // 本文件是网站的唯一数据来源，可直接手工增删改。
 // 章节字段：id 唯一标识（必填）｜title 章节名（必填）｜rtid RTID 表名后缀（可选）｜intro 章节前言（可选）
-// 条目字段：name 中文名（必填）｜code 代码（必填）｜src 来源小字（可选）｜note 备注小字（可选）
+// 条目字段：name 中文名（必填）｜code 代码（必填）｜src 来源小字（可选）｜note 备注小字（可选）｜rtid 单独指定 RTID 表名（可选）
 // 分组字段：title 标题｜items 条目列表｜children 子分组（与 items 二选一）
 
 Codex.add({
-  id: 'obstacle',
+  id: 'griditem',
   title: '障碍物代码',
   rtid: 'GriditemTypes',
   groups: [
@@ -96,7 +96,7 @@ Codex.add({
             { name: '月能采集终端(3×3型)', code: 'lunar_mine_collector_ring' },
             { name: '月能采集终端(十字型)', code: 'lunar_mine_collector_cross' },
             { name: '月球矿石', code: 'lunar_mine_ore' },
-            { name: '月球矿石', code: 'lunar_mine_vein', note: '未使用' },
+            { name: '月球矿石(未出土)', code: 'lunar_mine_vein' },
             { name: '陨石预告标志', code: 'radiation_warning' },
             { name: '落地陨石', code: 'radiation_meteor_ore' },
             { name: '陨石污染辐射', code: 'radiation_polluted_tile' },
@@ -559,6 +559,24 @@ Codex.add({
     {
       title: '其他障碍物',
       children: [
+        {
+          title: '可自定义障碍物',
+          items: [
+            { name: '弹坑', code: 'crater_timed_memo', note: 'GridItemCraterTimedMemo', rtid: 'CurrentLevel' },
+            { name: '僵博瓷砖', code: 'bufftile_memo', note: 'GridItemZombieBuffTileAttackDefaultMemo', rtid: 'CurrentLevel' },
+            { name: '药水', code: 'zombiepotion_memo', note: 'ZombiePotionSpeedDefaultMemo', rtid: 'CurrentLevel' },
+            { name: '黄金地砖', code: 'goldtile_memo', note: 'GoldTileMemo', rtid: 'CurrentLevel' },
+            { name: '子弹(滚石)地砖', code: 'boulder_trap_falling_forward_memo', note: 'BoulderFallingForwardTrapPropsMemo', rtid: 'CurrentLevel' },
+            { name: '黑暗墓碑-阳光', code: 'gravestoneSunOnDestruction_memo', note: 'GridItemGravestoneSunOnDestructionMemo', rtid: 'CurrentLevel' },
+            { name: '墓碑', code: 'gravestone_memo', note: 'GridItemGravestoneDefaultMemo', rtid: 'CurrentLevel' },
+            { name: '街机', code: 'eightiesarcadecabinet_memo', note: 'GridItemEightiesArcadeCabinetMemo', rtid: 'CurrentLevel' },
+            { name: '时空裂缝', code: 'zombieportal_memo', note: 'GridItemZombiePortalMemo', rtid: 'CurrentLevel' },
+            { name: '饺子(保护障碍物)', code: 'dumpling_memo', note: 'GridItemDumplingMemoDefault', rtid: 'CurrentLevel' },
+            { name: '僵尸改造机', code: 'zombie_changer_memo', note: 'GridItemZombieChangerMemoDefault', rtid: 'CurrentLevel' },
+            { name: '牌面纷争召唤友方僵尸墓碑', code: 'cardgame_gravestoneZombieTimeSpawner_memo', note: 'GridItemCardGameGravestoneZombieTimeSpawner', rtid: 'CurrentLevel' },
+            { name: '牌面纷争召唤敌方僵尸墓碑', code: 'cardgame_gravestoneZombieTimeSpawner_enemy_memo', note: 'GridItemCardGameGravestoneZombieTimeSpawnerEnemy', rtid: 'CurrentLevel' },
+          ],
+        },
         {
           title: '未知/无法使用',
           items: [

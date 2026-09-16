@@ -1,7 +1,7 @@
 // 代码图鉴 · 僵尸代码
 // 本文件是网站的唯一数据来源，可直接手工增删改。
 // 章节字段：id 唯一标识（必填）｜title 章节名（必填）｜rtid RTID 表名后缀（可选）｜intro 章节前言（可选）
-// 条目字段：name 中文名（必填）｜code 代码（必填）｜src 来源小字（可选）｜note 备注小字（可选）
+// 条目字段：name 中文名（必填）｜code 代码（必填）｜src 来源小字（可选）｜note 备注小字（可选）｜rtid 单独指定 RTID 表名（可选）
 // 分组字段：title 标题｜items 条目列表｜children 子分组（与 items 二选一）
 
 Codex.add({
@@ -831,6 +831,7 @@ Codex.add({
             { name: '矿工僵尸', code: 'modern_miner' },
             { name: '跳跳僵尸', code: 'pogo' },
             { name: '雪人僵尸', code: 'yeti' },
+            { name: '宝藏雪人', code: 'treasureyeti' },
             { name: '蹦极僵尸', code: 'pvz1_bungee' },
             { name: '扶梯僵尸', code: 'ladder' },
             { name: '投篮车僵尸', code: 'catapult' },
@@ -1158,6 +1159,12 @@ Codex.add({
             { name: '敌方近卫巨人', code: 'card_game_enemy_fairy_tale_gargantuar' },
           ],
         },
+      ]
+    },
+    
+    {
+      title: '其他僵尸',
+      children: [
         {
           title: '来自植物',
           items: [
@@ -1192,10 +1199,8 @@ Codex.add({
           ],
         },
         {
-          title: '其他僵尸',
+          title: '其他来源',
           items: [
-            { name: '雪人', code: 'yeti' },
-            { name: '宝藏雪人', code: 'treasureyeti' },
             { name: '花瓶巨人', code: 'vase_gargantuar' },
             { name: '魔术师僵尸', code: 'carnie_magician' },
             { name: '鸽子', code: 'carnie_dove' },
@@ -1215,11 +1220,28 @@ Codex.add({
           ],
         },
         {
+          title: '可自定义僵尸',
+          items: [
+            { name: '治愈者僵尸', code: 'roman_healer_memo', note: 'ZombieRomanHealerMemoDefault', rtid: 'CurrentLevel' },
+            { name: '卡波凯撒僵尸', code: 'time_stop', note: 'ZombieTimeStopDefault', rtid: 'CurrentLevel' },
+            { name: '导弹Z机甲(无贴图)', code: 'zmech_missle', note: 'ZombieZmechMissleDefault', rtid: 'CurrentLevel' },
+            { name: '无畏者2号', code: 'zombossmech_pvz1_robot_10', note: 'ZombieZombossMechPVZ1Robot10', rtid: 'CurrentLevel' },
+            { name: '埃及僵尸博士', code: 'zombossmech_egypt_memo', note: 'ZombieZombossMechEgyptMemo', rtid: 'CurrentLevel' },
+            { name: '海盗僵尸博士', code: 'zombossmech_pirate_memo', note: 'ZombieZombossMechPirateMemo', rtid: 'CurrentLevel' },
+            { name: '西部僵尸博士', code: 'zombossmech_cowboy_memo', note: 'ZombieZombossMechCowboyMemo', rtid: 'CurrentLevel' },
+            { name: '未来僵尸博士', code: 'zombossmech_future_memo', note: 'ZombieZombossMechFutureMemo', rtid: 'CurrentLevel' },
+            { name: '冰河僵尸博士', code: 'zombossmech_iceage_memo', note: 'ZombieZombossMechIceAgeMemo', rtid: 'CurrentLevel' },
+            { name: '天空僵尸博士', code: 'zombossmech_skycity_memo',  note: 'ZombieZombossMechSkyCityMemo', rtid: 'CurrentLevel' },
+            { name: '飞艇僵尸博士', code: 'zombossmech_lostcity_memo', note: 'ZombieZombossMechLostCityMemo', rtid: 'CurrentLevel' },
+            { name: '摇滚僵王博士', code: 'zombossmech_eighties_memo', note: 'ZombieZombossMechEightiesMemo', rtid: 'CurrentLevel' },
+          ],
+        },
+        {
           title: '未知',
           items: [
             { name: '街头巨人僵尸', code: 'uncharted_needforspeed_gargantuar', src: '未知' },
             { name: '埃及僵尸博士(狮身终结者)', code: 'zombossmech_egypt_rift', src: '潘追' },
-            { name: '沙滩僵尸博士(狂鲨潜袭者)[未完成]', code: 'zombossmech_beach_rift', src: '潘追' },
+            { name: '沙滩僵尸博士(狂鲨潜袭者)', code: 'zombossmech_beach_rift', src: '潘追' },
             { name: '摇滚僵王博士(狂舞灭碎者)', code: 'zombossmech_eighties_rift', src: '潘追' },
           ],
         },
