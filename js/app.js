@@ -28,7 +28,9 @@
   // chapters: null = 全部章节；否则是选中的章节 id 数组。
   // 空数组是**合法状态**（= 什么都不搜），只有勾满全部才归一成 null
   // density: 条目密度档位，见 css 里「条目密度档位」那段；standard 是改动前的样子
-  var settings = { format: 'plain', theme: 'auto', chapters: null, density: 'standard' };
+  // foldChapters: 侧栏章节列表是否折叠。默认展开——折叠是「章节太多挤到目录」时
+  //   才需要的动作，不该让第一次来的人先面对一个收起来的东西
+  var settings = { format: 'plain', theme: 'auto', chapters: null, density: 'standard', foldChapters: false };
 
   var DENSITIES = ['standard', 'compact', 'tight', 'single'];
   // 复制格式的可选值，跟设置浮层 index.html 里的 data-val 一一对应
@@ -102,6 +104,7 @@
         if (FORMATS.indexOf(o.format) >= 0) settings.format = o.format;
         if (o.theme === 'auto' || o.theme === 'light' || o.theme === 'dark') settings.theme = o.theme;
         if (DENSITIES.indexOf(o.density) >= 0) settings.density = o.density;
+        if (typeof o.foldChapters === 'boolean') settings.foldChapters = o.foldChapters;
         // 只做类型校验，不校验 id 是否存在于当前章节表里——这里同步执行，
         // 而章节是异步加载的，此刻 window.Codex.chapters 还是空的。
         // 真正的合法性校验推迟到 validateFilter()（章节加载完之后）。
@@ -304,6 +307,11 @@
         '<span class="chip-n">' + ch.count + '</span></button>';
     });
     chapterbar.innerHTML = html;
+    // innerHTML 重建会先把内容清空，scrollLeft 被夹回 0 —— 于是「选中的是第 5 章、
+    // 条子却停在最左边」，窄屏上既看不出自己在哪，右边那几章也够不到。
+    // 重建后立刻把选中项滚进视野。
+    scrollChipIntoView(chapterbar);
+    syncBarEdges(chapterbar);
   }
 
   function renderGroupbar() {
@@ -319,16 +327,29 @@
     groupbar.innerHTML = html;
     markActive();
     groupbar.scrollLeft = 0;
+    syncBarEdges(groupbar);
   }
 
   function renderSidebar() {
-    var html = '<div class="side-head">代码图鉴</div><div class="side-body">';
-    html += '<div class="side-label">章节</div>';
+    var html = '<div class="side-head"><span class="side-title">代码图鉴</span>' +
+      '<button class="side-close" type="button" data-close="1" aria-label="收起章节与目录">✕</button></div>' +
+      '<div class="side-body">';
+    // 章节这一行的标题本身就是折叠开关。章节还会继续加（子弹、主题、模块都在排队），
+    // 这一段的固定高度只会一路涨，把下面的目录挤到够不着 —— 能收起来就好办。
+    // 折叠状态记在 settings 里；renderSidebar 每次切章都会重跑，存 DOM 上会被冲掉。
+    html += '<button class="side-label side-fold" type="button" data-fold="1"' +
+      ' title="展开/折叠章节列表"' +
+      ' aria-expanded="' + (settings.foldChapters ? 'false' : 'true') + '">' +
+      '<span>章节</span>' +
+      '<span class="fold-ico" aria-hidden="true">' + (settings.foldChapters ? '▸' : '▾') + '</span>' +
+      '</button>';
+    html += '<div class="side-chlist"' + (settings.foldChapters ? ' hidden' : '') + '>';
     window.Codex.chapters.forEach(function (ch) {
       html += '<button class="side-ch' + (ch === state.chapter ? ' on' : '') + '" data-ch="' + esc(ch.id) + '">' +
         '<span class="side-t">' + esc(ch.title) + '</span>' +
         '<span class="side-n">' + ch.count + '</span></button>';
     });
+    html += '</div>';
     html += '<div class="side-label">' + esc(state.chapter.title) + ' · 目录</div>';
     var lastSec = null;
     state.chapter.groupUnits.forEach(function (u, i) {
@@ -360,6 +381,26 @@
     }
   }
 
+  // 把选中项滚到条子中间。用 offsetLeft 而不是 getBoundingClientRect：两个 chip 条
+  // 都是整宽、左对齐的兄弟，相对同一 offsetParent 的偏移量就等于相对滚动容器的偏移量，
+  // 而且 offsetLeft 不受当前滚动位置影响 —— 这里要的正是「绝对位置」。
+  // 章节条**不做平滑滚动**：切章是整块内容重绘，条子自己在那儿慢慢滑显得很脱节。
+  function scrollChipIntoView(bar) {
+    var on = bar.querySelector('.chip.on');
+    if (!on) return;
+    var left = on.offsetLeft - bar.clientWidth / 2 + on.offsetWidth / 2;
+    bar.scrollLeft = Math.max(0, Math.min(left, bar.scrollWidth - bar.clientWidth));
+  }
+
+  // 条子自己藏了滚动条（scrollbar-width: none），窄屏上「右边还有内容」就一点提示都没有：
+  // 看得见的几章之外，既想不到去滑、鼠标也没有滚动条可拖。靠这两个 class 在两侧做渐隐。
+  // 1px 的余量是留给亚像素取整的，不然滚动到底时右边那道渐隐会一直挂着不消。
+  function syncBarEdges(bar) {
+    var max = bar.scrollWidth - bar.clientWidth;
+    bar.classList.toggle('can-left', bar.scrollLeft > 1);
+    bar.classList.toggle('can-right', max > 1 && bar.scrollLeft < max - 1);
+  }
+
   // ── 滚动高亮 ──────────────────────────────────────────────────────────
   var ticking = false;
   function onScroll() {
@@ -379,13 +420,13 @@
     if (cur !== state.activeGroup) { state.activeGroup = cur; markActive(); }
   }
 
-  function gotoGroup(i, closeDrawer) {
+  // 只管跳转，不碰抽屉——两个调用点（分组 chips、侧栏目录）都不该收起它。
+  function gotoGroup(i) {
     var u = state.chapter.groupUnits[i];
     if (!u || !u.el) return;
     content.scrollTo({ top: u.el.offsetTop, behavior: 'auto' });
     state.activeGroup = i;
     markActive();
-    if (closeDrawer) closeSide();
   }
 
   // ── 章节切换 / 搜索 ───────────────────────────────────────────────────
@@ -461,6 +502,21 @@
   function openSide() { sidebar.classList.add('open'); scrim.classList.add('open'); }
   function closeSide() { sidebar.classList.remove('open'); scrim.classList.remove('open'); }
 
+  // 折叠章节列表。只动这一个容器，**不重绘整个侧栏** —— 重绘会把目录的滚动位置
+  // 丢回顶部，而点折叠的人十有八九正是为了去看目录。
+  function toggleFold() {
+    settings.foldChapters = !settings.foldChapters;
+    saveSettings();
+    var list = sidebar.querySelector('.side-chlist');
+    if (list) list.hidden = settings.foldChapters;
+    var btn = sidebar.querySelector('.side-fold');
+    if (btn) {
+      btn.setAttribute('aria-expanded', settings.foldChapters ? 'false' : 'true');
+      var ico = btn.querySelector('.fold-ico');
+      if (ico) ico.textContent = settings.foldChapters ? '▸' : '▾';
+    }
+  }
+
   // 两个浮层都是 position: fixed; right: 10px，同时开必叠在一起 —— 所以按单例开关处理。
   // sticky 是「浮层关着也要保持高亮」的额外条件：筛选按钮得在筛选生效期间一直亮着，
   // 否则用户看不出自己还开着筛选。
@@ -516,14 +572,47 @@
 
     groupbar.addEventListener('click', function (ev) {
       var b = ev.target.closest ? ev.target.closest('[data-g]') : null;
-      if (b) gotoGroup(+b.getAttribute('data-g'), false);
+      if (b) gotoGroup(+b.getAttribute('data-g'));
     });
 
+    // 两条 chip 条两侧的渐隐跟着横向滚动位置走。markActive 的平滑滚动也会路过这里，
+    // 正好让渐隐一路跟到底。
+    chapterbar.addEventListener('scroll', function () { syncBarEdges(chapterbar); }, { passive: true });
+    groupbar.addEventListener('scroll', function () { syncBarEdges(groupbar); }, { passive: true });
+    // 转屏 / 拉窗口会改变条子的可视宽度，边界状态得重算（内容没变，不会自己触发 scroll）。
+    window.addEventListener('resize', function () {
+      syncBarEdges(chapterbar);
+      syncBarEdges(groupbar);
+    });
+
+    // 滚轮横向滚 chip 条。窄屏下条子藏了滚动条，鼠标又无从横向滚（触控板双指和
+    // shift+滚轮是例外），不接管的话这 44px 就是个死区：滚轮放上去什么都不发生。
+    // 只在**真的滚动了**的时候 preventDefault，没溢出就把事件原样放走。
+    [chapterbar, groupbar].forEach(function (bar) {
+      bar.addEventListener('wheel', function (ev) {
+        if (bar.scrollWidth - bar.clientWidth <= 1) return;
+        // deltaMode: 0=像素 1=行 2=页。Firefox 常见的是「行」，不换算的话
+        // 一格滚轮只挪 3px，比不动还难受。
+        var unit = ev.deltaMode === 1 ? 16 : (ev.deltaMode === 2 ? bar.clientWidth : 1);
+        // 横向分量优先，不然触控板的斜向滑动会被 deltaY 抢走
+        var d = (Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY) * unit;
+        if (!d) return;
+        var before = bar.scrollLeft;
+        bar.scrollLeft = before + d;
+        if (bar.scrollLeft !== before) ev.preventDefault();
+      }, { passive: false });
+    });
+
+    // 抽屉里的点击**一律不收起**：点章节，下面那截目录整段会换，多半还要接着点；
+    // 点目录是跳到正文，但用户多半还要接着翻别的分组，来回拉抽屉更烦。
+    // 唯一主动收起的入口是头部的 ✕，另两条（点遮罩、按 Esc）是「误触也能退」的兜底。
     sidebar.addEventListener('click', function (ev) {
-      var t = ev.target.closest ? ev.target.closest('[data-ch],[data-g]') : null;
+      var t = ev.target.closest ? ev.target.closest('[data-close],[data-fold],[data-ch],[data-g]') : null;
       if (!t) return;
-      if (t.hasAttribute('data-ch')) { pickChapter(t.getAttribute('data-ch')); closeSide(); }
-      else gotoGroup(+t.getAttribute('data-g'), true);
+      if (t.hasAttribute('data-close')) { closeSide(); return; }
+      if (t.hasAttribute('data-fold')) { toggleFold(); return; }
+      if (t.hasAttribute('data-ch')) { pickChapter(t.getAttribute('data-ch')); return; }
+      gotoGroup(+t.getAttribute('data-g'));
     });
 
     input.addEventListener('input', function () {

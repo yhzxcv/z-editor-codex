@@ -181,6 +181,24 @@ code { font-family: var(--mono); font-size: .92em; }
 }
 .chapterbar::-webkit-scrollbar, .groupbar::-webkit-scrollbar { display: none; }
 
+/* 两侧渐隐：藏了滚动条之后，「右边还有章节」全靠这个提示（JS 按滚动位置挂 class）。
+   用 mask 而不是叠一层渐变 —— 条子本身就是滚动容器，叠层会跟着内容一起滚走。
+   代价是底边那条分隔线在渐隐区里也一起淡掉；看着正好也是「还没到头」的意思。 */
+.chapterbar.can-left, .groupbar.can-left {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 26px, #000 100%);
+          mask-image: linear-gradient(to right, transparent 0, #000 26px, #000 100%);
+}
+.chapterbar.can-right, .groupbar.can-right {
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 26px), transparent 100%);
+          mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 26px), transparent 100%);
+}
+.chapterbar.can-left.can-right, .groupbar.can-left.can-right {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 26px,
+                                      #000 calc(100% - 26px), transparent 100%);
+          mask-image: linear-gradient(to right, transparent 0, #000 26px,
+                                      #000 calc(100% - 26px), transparent 100%);
+}
+
 .chapterbar { height: 44px; padding: 0 10px; }
 .groupbar { height: 40px; padding: 0 10px; background: var(--panel-2); }
 
@@ -362,12 +380,17 @@ body.is-searching .groupbar { display: none; }
            var(--pad-sh-y2);
   background: var(--bg);
 }
+/* 大类横幅的备注（.sect-note）是加了「动物事件」那节才第一次用上的。
+   横幅是 flex 行，两边默认都会缩——中文可以逐字断行，挤压的结果是标题被折成两行。
+   所以标题锁死不缩，备注自己换行（它没写 overflow，能折）。 */
 .sect-title {
+  flex: 0 0 auto;
   font-size: 17px;
   font-weight: 700;
   color: var(--accent-ink);
 }
 .sect-note {
+  min-width: 0;
   font-size: 12px;
   color: var(--faint);
   line-height: 1.45;
@@ -394,8 +417,11 @@ body.is-searching .groupbar { display: none; }
   border-bottom: 1px solid var(--line);
   backdrop-filter: saturate(1.6) blur(6px);
 }
-.gh-title { color: var(--text); }
+/* 分组标题里的备注（.gh-note）也是这一版才第一次用上（「需添加对应资源组」「无效果」）。
+   同理锁住标题；备注那侧有 overflow:hidden，会先让位成省略号。 */
+.gh-title { flex: 0 0 auto; color: var(--text); }
 .gh-note {
+  min-width: 0;
   font-weight: 400;
   font-size: 12px;
   color: var(--faint);
@@ -543,11 +569,26 @@ body.is-searching .groupbar { display: none; }
 
 .side-head {
   flex: 0 0 auto;
-  padding: 15px 16px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 15px 10px 12px 16px;   /* 右边收窄一点，✕ 自己带内边距 */
   font-size: 15px;
   font-weight: 700;
   border-bottom: 1px solid var(--line);
 }
+.side-title { flex: 1 1 auto; }
+/* 收起抽屉的主动入口（另两条兜底：点遮罩、按 Esc）。宽屏下侧栏常驻，
+   没有「收起」这回事，所以那一档把它藏掉。 */
+.side-close {
+  flex: 0 0 auto;
+  width: 32px; height: 32px;
+  border-radius: 9px;
+  font-size: 15px;
+  display: grid; place-items: center;
+  color: var(--dim);
+}
+.side-close:hover { background: var(--bg); color: var(--text); }
 .side-body { flex: 1 1 auto; overflow-y: auto; padding: 6px 8px 24px; }
 
 .side-label {
@@ -557,6 +598,24 @@ body.is-searching .groupbar { display: none; }
   letter-spacing: .06em;
   color: var(--faint);
 }
+/* 章节那行的标题同时是折叠开关。目录那行还是纯标题，所以只给开关加 .side-fold。
+   排版全继承 .side-label，这里只补「撑满整行 + 箭头靠右」。 */
+.side-fold {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border-radius: 8px;
+}
+.side-fold:hover { color: var(--dim); }
+.fold-ico { font-size: 10px; line-height: 1; }
+
+/* 折叠时整段不占高度。这条要显式写：UA 的 [hidden] 只是元素选择器那一档的优先级，
+   将来谁给 .side-chlist 添一句 display，折叠就会静默失效、还查不出原因。 */
+.side-chlist[hidden] { display: none; }
+
 .side-sec {
   padding: 12px 8px 4px;
   font-size: 11.5px;
@@ -768,6 +827,7 @@ body.is-searching .groupbar { display: none; }
     padding-top: 0;
   }
   .side-head { padding-top: 17px; }
+  .side-close { display: none; }
   .scrim { display: none; }
   #btn-menu { display: none; }
 
@@ -800,44 +860,6 @@ body.is-searching .groupbar { display: none; }
   /* 宽屏有 hover，复制图标平时收起来，指到行上才出现 */
   .it-copy { opacity: 0; transition: opacity .12s; }
   .item:hover .it-copy, .item.copied .it-copy { opacity: 1; }
-}
-
-/* ── 内容区滚动条 ───────────────────────────────────────────────────── */
-/* 只给「有精确指针」的设备（桌面鼠标/触控板/带鼠标的触屏本），手机和平板保持系统默认。
-
-   为什么手机上不要（实测过、已否决，别再照着「让它也生效」改回来）：
-   拇指高度由「视口/内容」比例决定，没法用 CSS 设最小值。单列的手机版式下
-   目录极长（植物一章 429 条约 29000px，视口约 700px），算出来的拇指只有十几像素；
-   于是拖拽必然「不连续」——手指挪一点就跳过几百条。安卓的悬浮条反而更好用。
-   平台边界：iOS Safari 压根不支持 ::-webkit-scrollbar，iPhone 上从来就没生效过。
-
-   关键点（踩过）：Chromium 里一旦写了标准属性 scrollbar-color / scrollbar-width，
-   同一元素上的 ::-webkit-scrollbar 就被整个忽略 —— 宽度和拇指配色一起失效，
-   退回 Chrome 默认滚动条（Win11 上是细的、静止淡出的悬浮条，抓不住）。
-   实测：只写 scrollbar-color 时占宽 15px（默认）；把它改成 auto 才轮到
-   ::-webkit-scrollbar 生效、占宽立刻变成规则里写的值。所以两者**不能共存**，
-   Firefox 专用的标准属性必须用 @supports 隔开。
-   另一条：::-webkit-scrollbar 一旦指定宽度就会退出悬浮条模式、改用常驻滚动条，
-   这正是「能拖」的来源。border + background-clip 让拇指视觉收窄，命中区仍是 14px。 */
-@media (pointer: fine) {
-  .content {
-    scrollbar-gutter: stable;              /* 滚动条出现/消失时内容不横向跳 */
-  }
-  .content::-webkit-scrollbar { width: 14px; }
-  .content::-webkit-scrollbar-track { background: transparent; }
-  .content::-webkit-scrollbar-thumb {
-    background: var(--dim);                /* --faint 压在 --bg 上几乎看不出，用 --dim */
-    border-radius: 7px;
-    border: 2px solid transparent;
-    background-clip: padding-box;
-  }
-  .content::-webkit-scrollbar-thumb:hover { background: var(--text); }
-
-  /* Firefox 不认 ::-webkit-scrollbar，只能走标准属性。这条在 Chromium 里不匹配，
-     所以不会反过来把上面那套关掉。 */
-  @supports not selector(::-webkit-scrollbar) {
-    .content { scrollbar-width: auto; scrollbar-color: var(--dim) transparent; }
-  }
 }
 
 /* ── 动效偏好 ───────────────────────────────────────────────────────── */
