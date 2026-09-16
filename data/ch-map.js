@@ -15,6 +15,7 @@ Codex.add({
   groups: [
     {
       title: '常规场景',
+      note: '主线和秘境的场景代码',
       children: [
         {
           title: '主线场景',
@@ -85,6 +86,7 @@ Codex.add({
     },
     {
       title: '活动及玩法专属',
+      note: '其他特殊玩法中出现的地图',
       children: [
         {
           title: '回忆之旅',
@@ -146,6 +148,7 @@ Codex.add({
     },
     {
       title: '小推车',
+      note: '配置关卡中的小推车，可自定义贴图',
       children: [
         {
           title: '常用的小推车',

@@ -18,6 +18,7 @@ Codex.add({
   groups: [
     {
       title: '主线僵尸',
+      note: '大致按照中文版世界归属排放',
       children: [
         {
           title: '埃及/海盗',
@@ -456,6 +457,7 @@ Codex.add({
 
     {
       title: '秘境活动',
+      note: '秘境以及活动中出现的僵尸',
       children: [
         {
           title: '童话/Z公司',
@@ -795,6 +797,7 @@ Codex.add({
 
     {
       title: '特殊玩法',
+      note: '收录回忆潘追等活动的特有僵尸',
       children: [
         {
           title: '回忆之旅',
@@ -807,12 +810,7 @@ Codex.add({
             { name: '1号汤圆', code: 'gum_tangyuan1', src: '主题限定' },
             { name: '2号汤圆', code: 'gum_tangyuan2', src: '主题限定' },
             { name: '3号汤圆', code: 'gum_tangyuan3', src: '主题限定' },
-            { name: '普通僵尸', code: 'tutorial' },
-            { name: '旗子僵尸', code: 'tutorial_flag' },
-            { name: '路障僵尸', code: 'tutorial_armor1' },
             { name: '撑杆跳僵尸', code: 'pole_vaulting' },
-            { name: '铁桶僵尸', code: 'tutorial_armor2' },
-            { name: '报纸僵尸', code: 'modern_newspaper' },
             { name: '脆皮报纸僵尸', code: 'modern_newspaper_memo' },
             { name: '全明星僵尸', code: 'modern_allstar' },
             { name: '铁网门僵尸', code: 'ScreenDoor' },
@@ -1164,6 +1162,7 @@ Codex.add({
     
     {
       title: '其他僵尸',
+      note: '较难分类或其他来源的僵尸',
       children: [
         {
           title: '来自植物',

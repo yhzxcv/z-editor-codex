@@ -11,6 +11,7 @@ Codex.add({
   groups: [
     {
       title: '主线与回忆',
+      note: '主线和回忆出现的常见障碍物',
       children: [
         {
           title: '主线世界',
@@ -168,6 +169,7 @@ Codex.add({
     },
     {
       title: '特殊活动',
+      note: '收录现时活动的特有障碍物',
       children: [
         {
           title: '响叮当活动',
@@ -257,6 +259,7 @@ Codex.add({
     },
     {
       title: '实体生成',
+      note: '由对局内的植物或僵尸实体生成的障碍物',
       children: [
         {
           title: '植物生成',
@@ -456,6 +459,7 @@ Codex.add({
     },
     {
       title: '裂缝合集',
+      note: '主线摩登和其他模式出现的裂缝',
       children: [
         {
           title: '主线关卡',
@@ -558,6 +562,7 @@ Codex.add({
     },
     {
       title: '其他障碍物',
+      note: '较难分类或其他来源的障碍物',
       children: [
         {
           title: '可自定义障碍物',

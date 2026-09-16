@@ -1,7 +1,7 @@
 // 代码图鉴 · 植物代码
 // 本文件是网站的唯一数据来源，可直接手工增删改。
 // 章节字段：id 唯一标识（必填）｜title 章节名（必填）｜rtid RTID 表名后缀（可选）｜intro 章节前言（可选）
-// 条目字段：name 中文名（必填）｜code 代码（必填）｜src 来源小字（可选）｜note 备注小字（可选）｜rtid 单独指定 RTID 表名（可选）
+// 条目字段：name 中文名（必填）｜code 代码（必填）｜src 来源小字（可选）｜note 备注小字（可选）
 // 分组字段：title 标题｜items 条目列表｜children 子分组（与 items 二选一）
 
 Codex.add({
@@ -16,6 +16,7 @@ Codex.add({
   groups: [
     {
       title: '图鉴中的植物',
+      note: '按照世界和主题分类',
       children: [
         {
           title: '一代植物',
@@ -71,12 +72,14 @@ Codex.add({
           ],
         },
         {
-          title: '埃及/海盗',
+          title: '教程/埃及/海盗',
           items: [
             { name: '向日葵', code: 'sunflower' },
             { name: '豌豆射手', code: 'peashooter' },
             { name: '坚果', code: 'wallnut' },
             { name: '土豆地雷', code: 'potatomine' },
+            { name: '仙人掌', code: 'cactus' },
+            { name: '槲寄冰仙子', code: 'missiletoe' },
             { name: '噬碑藤', code: 'gravebuster' },
             { name: '冰冻生菜', code: 'iceburg' },
             { name: '回旋镖射手', code: 'bloomerang' },
@@ -86,7 +89,6 @@ Codex.add({
             { name: '菜问', code: 'bonkchoy' },
             { name: '寒冰射手', code: 'snowpea' },
             { name: '火炬树桩', code: 'torchwood' },
-            { name: '仙人掌', code: 'cactus' },
             { name: '火龙草', code: 'snapdragon' },
             { name: '椰子加农炮', code: 'coconutcannon' },
             { name: '能量花', code: 'powerlily' },
@@ -372,6 +374,7 @@ Codex.add({
             { name: '留声曼陀罗', code: 'heavendatura' },
             { name: '疯狂炮仗花', code: 'firecrackerflower' },
             { name: '盒子草礼炮', code: 'actinostemma' },
+            { name: '凤凰木花车', code: 'phoenixfloat' },
           ],
         },
         {
@@ -392,7 +395,6 @@ Codex.add({
             { name: '苹果迫击炮', code: 'applemortar' },
             { name: '电流醋栗', code: 'electriccurrant' },
             { name: '防风草', code: 'parsnip' },
-            { name: '槲寄冰仙子', code: 'missiletoe' },
             { name: '野兽猕猴桃', code: 'kiwibeast' },
             { name: '热辣海枣', code: 'hotdate' },
             { name: '电力绿茶', code: 'electricitea' },
@@ -466,6 +468,7 @@ Codex.add({
     },
     {
       title: '图鉴外的植物',
+      note: '未出现在图鉴中的特殊植物',
       children: [
         {
           title: '平行宇宙',
