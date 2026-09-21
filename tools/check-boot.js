@@ -342,7 +342,162 @@ const objsBefore = objCount();
   ok(doc.documentElement.getAttribute('data-theme') === 'light', '能切回浅色');
 }
 
-// ── 6. 汇总 ────────────────────────────────────────────────────────────
+// ── 6. 按钮扫雷 ────────────────────────────────────────────────────────
+//
+// 上面几节只覆盖我想得到的路径。这一节换个思路：把每个面板里的按钮逐个点一遍，
+// 只问一件事 —— 有没有抛异常。第二个 bug（在订阅回调里调记录上没有的方法）
+// 就是这一类，任何一个小面板里再犯一次都该被这里抓住。
+//
+// 两条规则是必须的，否则这一节会变成"点了个寂寞"：
+//
+//   1. **每次都现查 DOM**。面板是整块重建的，先收集 NodeList 再遍历的话，
+//      点到一半节点就全成了游离节点，点的是旧闭包，测不出任何东西。
+//   2. **先造出一个"脏"文档**，让修东西的按钮真的存在。空关卡是干净的，
+//      校验面板一个按钮都不渲染 —— 第一版就是这样：号称扫了 600 个按钮，
+//      其实 96 个插入按钮来回点了几轮，校验面板一次都没进去。
+//
+// 放在最后：这一节有副作用（真的插、真的删、真的清），前面那些精确断言
+// 用的是干净的初始文档。
+console.log('\n按钮扫雷（每个按钮点一次，只看有没有抛异常）');
+
+// 下载会走 createObjectURL + a.click()，jsdom 两样都没实现
+win.URL.createObjectURL = function () { return 'blob:stub'; };
+win.URL.revokeObjectURL = function () {};
+
+/** 点某个面板里的所有按钮，每次现查 DOM，同一个节点只点一次。 */
+function sweep(panelId, cap, expandSel) {
+  // 先展开所有折叠段 —— 收着的段里的按钮用户点不到，但它们是渲染过的
+  const seen = new WeakSet();
+  const hit = [];
+  for (let guard = 0; guard < cap; guard++) {
+    if (expandSel) {
+      const folded = [...doc.querySelectorAll(panelId + ' ' + expandSel)]
+        .find(h => !seen.has(h) && /▸/.test(h.textContent));
+      if (folded) {
+        seen.add(folded);
+        hit.push(String(folded.className || folded.tagName));
+        click(folded, '展开 ' + folded.textContent.slice(0, 10));
+        continue;
+      }
+    }
+    const b = [...doc.querySelectorAll(panelId + ' button')]
+      .find(x => !x.disabled && !seen.has(x));
+    if (!b) break;
+    seen.add(b);
+    hit.push(String(b.className || b.tagName));
+    if (process.env.SWEEP_VERBOSE) console.log("        -> " + panelId + " " + (b.className||b.tagName) + " | " + String(b.textContent).slice(0,20));
+    click(b, (b.className || b.tagName) + ' ' + String(b.textContent).slice(0, 16));
+  }
+  return hit;
+}
+
+{
+  // 先造"脏"状态：载入模板 -> 从对象树删几个对象（会留下失去引用的空壳），
+  // 这样校验面板才会渲染出「清理这 N 个对象」和孤儿列表
+  click(doc.getElementById('btn-templates'), '模板');
+  const items = [...doc.querySelectorAll('#tpl-pop button, #tpl-pop .tpl-item')];
+  ok(items.length >= 9, '模板弹层里有 9 份模板', `${items.length} 份`);
+  // 要挑一份**有内容**的：空白关卡只有 LevelDefinition，一个可删的对象都没有，
+  // 校验面板也就一个按钮都不渲染（第一版就栽在这）
+  const item = items.find(x => /坚不可摧/.test(x.textContent)) || items[items.length - 1];
+  ok(!!item, '找到一份有内容的模板', item && item.textContent.trim().slice(0, 20));
+  if (item) {
+    click(item, '选模板');
+    ok(/LevelDefinition/.test(doc.getElementById('panel-tree').textContent),
+      '选了模板之后对象树有内容');
+  }
+
+  const objs = objCount();
+  ok(objs > 2, '这份模板里有多个对象（不然删无可删）', `${objs} 个`);
+  // 删掉几个：级联会顺手清掉失去引用的对象，所以这一步只造出**失效引用**
+  // （引用还在、对象没了）—— 校验面板的「失效引用」那一段
+  const dels = [...doc.querySelectorAll('#panel-tree .node-del')].slice(0, 3);
+  ok(dels.length > 0, '对象树里有可删的行', `${dels.length} 个删除按钮`);
+  dels.forEach(d => click(d, '删一个对象'));
+  ok(objCount() < objs, '删完之后对象变少了（脏状态成立）', `${objs} -> ${objCount()}`);
+
+  // 再手改出一批**孤儿**（对象还在、没人引用）。删是删不出孤儿的 ——
+  // removeObject 会级联清理，这是设计如此。孤儿只能从"引用被改没了"来，
+  // 而那正是用户手改 JSON 时最常干的事，也是「清理」按钮唯一出现的情形。
+  {
+    const doc0 = JSON.parse(cmText());
+    const victim = doc0.objects.find(o =>
+      o.objclass !== 'LevelDefinition' && o.aliases && o.aliases.length);
+    ok(!!victim, '找得到一个有引用的对象来制造孤儿',
+      victim && victim.aliases[0]);
+    if (victim) {
+      const rtid = `RTID(${victim.aliases[0]}@CurrentLevel)`;
+      const before = cmText();
+      const after = before.split(rtid).join('RTID(LevelDefinition@CurrentLevel)');
+      ok(after !== before, `把 ${rtid} 的引用改指到别处`, `${rtid}`);
+      const v = view();
+      v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: after } });
+      click([...doc.querySelectorAll('.tabs button')][2], '校验页');
+      ok(/清理这/.test(doc.getElementById('panel-check').textContent),
+        '校验面板出现了「清理这 N 个对象」按钮');
+    }
+  }
+
+  // 顺序是排过的，而且是被断言逼出来的：孤儿一被清掉/被级联删掉，
+  // 「清理」按钮就不存在了。所以校验页必须**第一个**扫 —— 对象树那边点
+  // node-del 时 removeObject 会级联，插入那 55 下又会把文档改得认不出来，
+  // 哪个先来都会让孤儿消失，然后这一节悄没声地退化成点了个寂寞。
+  const tabs = [...doc.querySelectorAll('.tabs button')];
+  const plan = [
+    { id: '#panel-check', tab: 2, expand: null },
+    {
+      id: '#panel-tree', tab: 0, expand: '.sec-head',
+      // 上一段把孤儿清掉了，文档这会儿只剩一副骨架，树里一个可删的行都没有，
+      // .node-del 就扫不到（覆盖率断言会当场报出来）。重新开一份有内容的。
+      pre: function () {
+        click(doc.getElementById('btn-templates'), '再开模板');
+        const it = [...doc.querySelectorAll('#tpl-pop button')]
+          .find(x => /坚不可摧/.test(x.textContent));
+        if (it) click(it, '再选坚不可摧');
+      }
+    },
+    { id: '#panel-insert', tab: 1, expand: '.ins-group-h' }
+  ];
+  const before = problems.length;
+  const swept = {};
+  plan.forEach(step => {
+    if (step.pre) step.pre();
+    click(tabs[step.tab], '页签 ' + (step.tab + 1));
+    if (process.env.SWEEP_VERBOSE) {
+      console.log('       [' + step.id + '] 按钮: ' +
+        [...doc.querySelectorAll(step.id + ' button')].map(b => b.className).join(', '));
+    }
+    swept[step.id] = sweep(step.id, 140, step.expand);
+    console.log(`       ${step.id}  点了 ${swept[step.id].length} 个按钮`);
+  });
+  const clicked = Object.keys(swept).reduce((a, k) => a + swept[k].length, 0);
+
+  // 把"覆盖到哪了"也断言掉。这一节的价值全在覆盖上，而覆盖是会**悄悄失效**的：
+  // 面板随文档状态重建，某个按钮不存在时就少测一条路，扫雷照样全绿。
+  // 所以点名要求几个关键按钮必须真的被点到。
+  for (const cls of ['node-go', 'node-del', 'sec-head', 'ins-group-h', 'ins-main']) {
+    ok(swept['#panel-tree'].concat(swept['#panel-insert'], swept['#panel-check'])
+      .some(c => c.indexOf(cls) >= 0), `扫到了 .${cls}`);
+  }
+  ok(swept['#panel-check'].some(c => /btn-fix/.test(c)),
+    '扫到了校验面板的「清理」按钮（孤儿被清掉了才算真点到）');
+
+  // 顶栏和弹层也是"点了没反应"的重灾区
+  const chrome = ['btn-templates', 'btn-settings', 'btn-undo', 'btn-save', 'btn-open', 'btn-clear']
+    .map(id => doc.getElementById(id)).filter(Boolean);
+  let chromeClicked = 0;
+  chrome.forEach(b => { if (!b.disabled && !b.hidden) { click(b, b.id); chromeClicked++; } });
+  click(doc.getElementById('scrim'), '遮罩');
+
+  ok(clicked > 30, `面板里一共点了 ${clicked} 个按钮（太少说明选择器没选中东西）`,
+    `顶栏另点 ${chromeClicked} 个`);
+
+  const thrown = problems.slice(before).filter(p => !/Not implemented|Could not parse CSS/.test(p));
+  ok(thrown.length === 0, '扫的过程中没有抛异常', thrown.slice(0, 2).join(' | '));
+  if (thrown.length) thrown.slice(0, 5).forEach(t => console.log('      ' + t));
+}
+
+// ── 7. 汇总 ────────────────────────────────────────────────────────────
 console.log('\n控制台输出');
 if (problems.length) {
   problems.slice(0, 15).forEach(p => console.log('  !!  ' + p));
