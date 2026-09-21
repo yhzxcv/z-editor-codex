@@ -1,0 +1,363 @@
+/* 把整页在无头 DOM 里真跑一遍：node tools/check-boot.js
+ *
+ * 前面三个套件都是"静态看"或"单模块跑"。这个不一样 —— 它按 index.html
+ * 的顺序加载全部脚本、触发 DOMContentLoaded、等 boot() 跑完，然后**真的去点**。
+ * 抓的是只有整页跑起来才会暴露的错误：CM6 初始化抛异常、事件没接上、
+ * 点击回调里引用错东西……也就是"点了没反应"那一类。
+ *
+ * 用法上它是开发时的诊断工具，不进 npm run check（jsdom 是 devDependency，
+ * 而 check 那套要保证 clone 下来不装依赖也能跑）。
+ *
+ * 它**不能**替代人眼：布局、hover、滚动、真实渲染效果都测不出来。
+ */
+'use strict';
+const path = require('path');
+const fs = require('fs');
+const { JSDOM, VirtualConsole } = require('jsdom');
+
+const ROOT = path.join(__dirname, '..');
+const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+
+// 自己按顺序注入脚本，不让 jsdom 去异步取资源 —— 顺序确定、报错归因清楚。
+// 所以先把 HTML 里的 <script src> 摘掉。
+const srcs = [...html.matchAll(/<script src="([^"]+)"/g)].map(m => m[1]);
+const shell = html.replace(/<script src="[^"]+"><\/script>/g, '');
+
+const problems = [];
+const logs = [];
+const vc = new VirtualConsole();
+// 注意：DOM 事件监听器里抛的异常**不会**传回 dispatchEvent —— 规范规定要报到
+// 全局错误处理上。所以这个 virtualConsole 是唯一能看见"点了没反应"真正原因的地方。
+// 栈一定要带上：光看消息只知道炸了，不知道炸在哪一行。
+vc.on('jsdomError', e => {
+  const err = e.detail || e;
+  problems.push('jsdomError: ' + (err.message || e.message) +
+    '\n      ' + String(err.stack || '').split('\n').slice(1, 5).join('\n      '));
+});
+vc.on('error', (...a) => { problems.push('console.error: ' + a.join(' ')); });
+vc.on('warn', (...a) => { logs.push('warn: ' + a.join(' ')); });
+vc.on('log', (...a) => logs.push('log: ' + a.join(' ')));
+
+const dom = new JSDOM(shell, {
+  runScripts: 'dangerously',
+  pretendToBeVisual: true,          // 给 requestAnimationFrame
+  url: 'http://localhost:8000/',
+  virtualConsole: vc
+});
+const win = dom.window;
+
+// jsdom 没有的浏览器 API，按 CM6 的最低需要补上
+win.matchMedia = win.matchMedia || (q => ({
+  matches: false, media: q, addEventListener() {}, removeEventListener() {},
+  addListener() {}, removeListener() {}
+}));
+if (!win.ResizeObserver) {
+  win.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+}
+// CM6 量文本尺寸要用 canvas 的 measureText；jsdom 没实现，给个假的
+win.HTMLCanvasElement.prototype.getContext = function () {
+  return {
+    measureText: t => ({ width: String(t).length * 7 }),
+    font: '', fillText() {}, save() {}, restore() {}, scale() {}, clearRect() {},
+    setTransform() {}, drawImage() {}
+  };
+};
+
+// ── 1. 按 HTML 顺序把脚本塞进去 ────────────────────────────────────────
+console.log('加载脚本');
+const loadErrors = [];
+for (const s of srcs) {
+  const code = fs.readFileSync(path.join(ROOT, s), 'utf8');
+  try {
+    win.eval(code);
+  } catch (e) {
+    loadErrors.push(`${s}: ${e.message}`);
+  }
+}
+console.log(`  ${loadErrors.length ? '!!' : 'OK'}  ${srcs.length} 个脚本注入完毕`);
+loadErrors.forEach(e => console.log('      ' + e));
+
+// ── 2. 触发 DOMContentLoaded，让 boot() 跑起来 ─────────────────────────
+console.log('\nboot()');
+let bootErr = null;
+try {
+  win.document.dispatchEvent(new win.Event('DOMContentLoaded', { bubbles: true }));
+} catch (e) {
+  bootErr = e;
+}
+const bootProblems = problems.slice();
+console.log(`  ${bootErr ? '!!' : 'OK'}  boot() 没有抛异常`);
+if (bootErr) console.log('      ' + bootErr.message + '\n' + (bootErr.stack || '').split('\n').slice(1, 4).join('\n'));
+
+// ── 3. boot() 之后页面该有的东西 ───────────────────────────────────────
+console.log('\n页面状态');
+// 断言失败必须影响退出码。曾经这里只往控制台打 `!!`，退出码只看
+// "有没有抛异常"，于是断言全红也照样 `整页跑通` + exit 0 —— 一个假绿生成器。
+const failures = [];
+function ok(cond, label, extra) {
+  console.log(`  ${cond ? 'OK  ' : '!!  '}${label}${extra ? '   ' + extra : ''}`);
+  if (!cond) failures.push(label);
+  return cond;
+}
+const doc = win.document;
+
+const editorHost = doc.getElementById('editor');
+ok(editorHost && editorHost.querySelector('.cm-editor'),
+  'CodeMirror 编辑器渲染出来了',
+  editorHost ? `子元素 ${editorHost.children.length} 个` : '找不到 #editor');
+
+ok(!!editorHost.querySelector('.cm-content'),
+  '编辑器有内容区（.cm-content）');
+const gutter = editorHost.querySelector('.cm-gutters');
+ok(!!gutter, '行号 gutter 在');
+ok(!!editorHost.querySelector('.cm-gutter-lint'), 'lint gutter 在（错误波浪线靠它）');
+
+const treeHtml = doc.getElementById('panel-tree').innerHTML;
+ok(treeHtml.trim().length > 0, '对象树渲染了内容', `panel-tree ${treeHtml.length} 字符`);
+ok(/LevelDefinition/.test(treeHtml), '对象树里有 LevelDefinition');
+
+const status = doc.getElementById('statusbar').textContent;
+ok(status.trim().length > 0, '状态栏有文字', JSON.stringify(status.slice(0, 60)));
+ok(doc.getElementById('doc-name').textContent !== '未打开文件',
+  '顶栏显示了文件名', doc.getElementById('doc-name').textContent);
+
+// ── 4. 真的去点 ────────────────────────────────────────────────────────
+console.log('\n交互');
+
+function click(el, label) {
+  const before = problems.length;
+  try {
+    el.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+  } catch (e) {
+    problems.push(`点击「${label}」时抛异常: ${e.message}`);
+  }
+  const news = problems.slice(before);
+  const bad = news.filter(p => !/Not implemented|Could not parse CSS/.test(p));
+  return bad;
+}
+
+// 4a. 页签切换
+{
+  const tabs = [...doc.querySelectorAll('.tabs button')];
+  ok(tabs.length === 3, '3 个页签按钮', String(tabs.length));
+  const bad = click(tabs[1], '插入');
+  const shown = doc.getElementById('panel-insert');
+  const hiddenTree = doc.getElementById('panel-tree').hidden;
+  ok(shown && !shown.hidden && hiddenTree, '点「插入」页签后两个面板正确互换',
+    `insert.hidden=${shown && shown.hidden} tree.hidden=${hiddenTree}`);
+  if (bad.length) console.log('      点击报错: ' + bad[0]);
+
+  // 插入面板里该有模块分组
+  const insHtml = shown.innerHTML;
+  ok(insHtml.length > 200, '插入面板有内容', `${insHtml.length} 字符`);
+  click(tabs[0], '对象');
+}
+
+// 4b. 顶栏按钮
+{
+  const bad = click(doc.getElementById('btn-templates'), '模板');
+  const pop = doc.getElementById('tpl-pop');
+  ok(!pop.hidden, '点「模板」弹层打开了', `hidden=${pop.hidden}`);
+  ok(pop.children.length >= 9, '模板列表有 9 项', `${pop.children.length} 项`);
+  if (bad.length) console.log('      点击报错: ' + bad[0]);
+  click(doc.getElementById('btn-settings'), '设置');
+  ok(!doc.getElementById('settings').hidden, '点 ⚙ 设置弹层打开了');
+}
+
+// 4c. 对象树里点一行 —— 这才是"跳转"那条路
+{
+  const go = doc.querySelector('#panel-tree .node-go');
+  ok(!!go, '对象树里有可点的行');
+  if (go) {
+    const bad = click(go, '对象树行');
+    if (bad.length) console.log('      点击报错: ' + bad[0]);
+    const sel = win.document.querySelector('.cm-content');
+    ok(!!sel, '点了对象树之后编辑器还在');
+  }
+}
+
+// ── 5. 核心操作：插入 / 撤销 / 语法错误 / 主题 ────────────────────────
+//
+// 前面几节只证明"页面画出来了"。真正要证明的是"点了有用" —— 所以这里
+// 从头走一遍用户会走的路径，每一步都拿编辑器的实际文本来验，不看界面文字。
+console.log('\n核心操作');
+
+// CM6 把 view 挂在 DOM 上，可以通过它拿到编辑器状态
+function view() {
+  return win.CM.EditorView.findFromDOM(doc.querySelector('.cm-editor'));
+}
+function cmText() { return view().state.doc.toString(); }
+function treeCount() { return doc.querySelectorAll('#panel-tree .node-go').length; }
+function objCount() { return JSON.parse(cmText()).objects.length; }
+
+// 删除要弹 confirm。jsdom 的 confirm 是「未实现」，直接会报 Not implemented，
+// 而且返回 undefined（=取消）。这里替掉它 —— 替的是浏览器对话框，不是被测代码。
+win.confirm = function () { return true; };
+
+ok(!!view(), '能通过 DOM 拿到 EditorView');
+
+const blankText = cmText();
+const treeBefore = treeCount();
+const objsBefore = objCount();
+
+// 5a. 插入一个模块
+{
+  const tabs = [...doc.querySelectorAll('.tabs button')];
+  click(tabs[1], '插入');
+
+  const groupHead = doc.querySelector('#panel-insert .ins-group-h');
+  ok(!!groupHead, '插入面板有模块分组');
+  click(groupHead, '展开分组');
+
+  const btn = doc.querySelector('#panel-insert .ins-group-b .ins-main');
+  ok(!!btn, '分组里能点到模块按钮');
+  const meta = win.ZLevel.Modules.moduleGroups[0].items[0];
+  ok(btn && btn.textContent.indexOf(meta.title) >= 0, '第一个按钮就是注册表里的第一个模块',
+    btn && btn.textContent.slice(0, 30));
+
+  const bad = click(btn, '插入模块');
+  if (bad.length) console.log('      报错: ' + bad[0]);
+
+  const after = cmText();
+  ok(after !== blankText, '插入后编辑器文本变了', `${blankText.length} -> ${after.length} 字符`);
+  ok(after.indexOf('Modules') >= 0, '文本里出现了 Modules（RTID 挂上了）');
+  ok(treeCount() > treeBefore, '对象树多了行', `${treeBefore} -> ${treeCount()}`);
+
+  const undoBtn = doc.getElementById('btn-undo');
+  ok(!undoBtn.hidden, '「撤销」按钮出现了');
+  ok(/已做过结构操作/.test(doc.getElementById('statusbar').textContent),
+    '状态栏提示"已做过结构操作"');
+
+  // 插入的内容必须是合法 JSON —— 结构操作会重新序列化整份文件
+  let parsed = null;
+  try { parsed = JSON.parse(after); } catch (e) { /* 下面断言会报 */ }
+  ok(!!parsed, '插入后整体仍是合法 JSON');
+  ok(parsed && parsed.objects.length > objsBefore, '对象数确实增加了',
+    parsed && `${objsBefore} -> ${parsed.objects.length}`);
+  ok(/插入/.test(doc.getElementById('btn-undo').title), '撤销按钮说的是「撤销插入」',
+    JSON.stringify(doc.getElementById('btn-undo').title.slice(0, 24)));
+}
+
+// 5b. 从对象树删掉刚插进来的那个 —— 走的是另一条结构操作路径
+{
+  const alias = win.ZLevel.Modules.moduleGroups[0].items[0].defaultAlias;
+  // 树里这个对象所在的行；行内 ✕ 才是删除
+  const rows = [...doc.querySelectorAll('#panel-tree .node')];
+  const row = rows.find(r => r.textContent.indexOf(alias) >= 0);
+  ok(!!row, `对象树里能找到刚插入的 ${alias}`);
+  const del = row && row.querySelector('.node-del');
+  ok(!!del, '这一行有删除按钮（根对象的行不该有，模块的行该有）');
+
+  const bad = del ? click(del, '删除对象') : [];
+  if (bad.length) console.log('      报错: ' + bad[0]);
+
+  ok(objCount() === objsBefore, `删除后对象数回到 ${objsBefore}`, String(objCount()));
+  ok(/删除/.test(doc.getElementById('btn-undo').title), '撤销按钮现在说的是「撤销删除」');
+}
+
+// 5c. 撤销是一个**栈**：连撤两次，第二次要能撤掉插入
+{
+  click(doc.getElementById('btn-undo'), '撤销删除');
+  ok(objCount() === objsBefore + 1, '撤销一次：删掉的对象回来了', String(objCount()));
+  ok(!doc.getElementById('btn-undo').hidden, '还有得撤，按钮还在');
+
+  const before = cmText();
+  click(doc.getElementById('btn-undo'), '撤销插入');
+  ok(cmText() === blankText, '再撤销一次：文本回到最初', `${before.length} -> ${cmText().length}`);
+  ok(doc.getElementById('btn-undo').hidden, '栈空了，撤销按钮藏起来');
+}
+
+// 5d. 语法错误 -> 波浪线 -> 修好
+{
+  const v = view();
+  v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: '{"objects": [}' } });
+
+  ok(!doc.getElementById('errbar').hidden, '语法错误时红色横幅出现',
+    JSON.stringify(doc.getElementById('errbar').textContent.slice(0, 50)));
+  // 横幅要写人话，不是引擎的英文
+  ok(!/Unexpected|JSON\.parse/.test(doc.getElementById('errbar').textContent),
+    '横幅里不是引擎的英文原文');
+
+  ok(!!doc.querySelector('.cm-lintRange'), '编辑器里画出了波浪线（.cm-lintRange）');
+  ok(!!doc.querySelector('.cm-gutter-lint .cm-lint-marker'),
+    'gutter 上有错误标记');
+  ok(/JSON 有误/.test(doc.getElementById('statusbar').textContent), '状态栏说 JSON 有误');
+
+  // 结构操作必须在语法错误时被拒 —— 否则会把半截文本序列化成
+  // 一个"合法但不是用户想要"的文件，比直接报错危险得多
+  const tabs = [...doc.querySelectorAll('.tabs button')];
+  click(tabs[1], '插入');
+  const groupHead = doc.querySelector('#panel-insert .ins-group-h');
+  ok(!!groupHead, '语法错误时插入面板还在（没塌）');
+  if (groupHead) click(groupHead, '展开分组');
+  const insBtn = doc.querySelector('#panel-insert .ins-group-b .ins-main');
+  ok(!!insBtn, '语法错误时按钮仍然可点（拒绝要发生在点之后，不能靠藏按钮）');
+  const txt = cmText();
+  const toast = doc.getElementById('toast');
+  toast.hidden = true;
+  const bad = insBtn ? click(insBtn, '语法错误时插入') : [];
+  ok(cmText() === txt, '语法错误时插入被拒绝（文本没动）');
+  // 只看"文本没动"是不够的 —— 抛异常也是"没动"。得看用户收到的是不是一句人话。
+  // （这条是被变异测试逼出来的：把 state.js 的守卫拿掉后，插入改成抛异常，
+  //   "文本没动"照样绿。）
+  ok(!toast.hidden && /语法错误/.test(toast.textContent),
+    '拒绝时给了提示，不是默默失败', JSON.stringify(toast.textContent));
+  ok(bad.length === 0, '拒绝的过程本身没有抛异常');
+
+  // 修好 -> 波浪线和横幅都该消失
+  const v2 = view();
+  v2.dispatch({ changes: { from: 0, to: v2.state.doc.length, insert: blankText } });
+  ok(doc.getElementById('errbar').hidden, '修好之后横幅消失');
+  ok(!doc.querySelector('.cm-lintRange'), '修好之后波浪线消失');
+}
+
+// 5e. 主题切换。风险点是 setText 会重建 state 而 Compartment 实例要复用，
+//     所以切完主题必须再做一次结构操作，确认两边都没坏。
+{
+  // 前面的点击可能把弹层关掉了，先确保它是开的（弹层关着按钮仍然在 DOM 里，
+  // 直接点会点到一个用户点不到的东西 —— 那样测出来的结论没有意义）
+  if (doc.getElementById('settings').hidden) click(doc.getElementById('btn-settings'), '设置');
+  const seg = doc.querySelector('#settings .seg[data-key="theme"] button[data-val="dark"]');
+  ok(!!seg && !doc.getElementById('settings').hidden, '设置弹层开着，里面有深色主题按钮');
+  const bad = click(seg, '切深色');
+  if (bad.length) console.log('      报错: ' + bad[0]);
+  ok(doc.documentElement.getAttribute('data-theme') === 'dark', 'html 上写了 data-theme=dark');
+  ok(!!doc.querySelector('.cm-editor'), '切主题后编辑器还在');
+
+  // 换文档（重建 state）+ 再插一次，确认 Compartment 没被打坏
+  const tabs = [...doc.querySelectorAll('.tabs button')];
+  click(tabs[1], '插入');
+  const gh = doc.querySelector('#panel-insert .ins-group-h');
+  if (gh) click(gh, '展开分组');
+  const btn = doc.querySelector('#panel-insert .ins-group-b .ins-main');
+  ok(!!btn, '切主题后插入按钮还在');
+  const before = cmText();
+  if (btn) click(btn, '切主题后插入');
+  ok(cmText() !== before, '切主题之后结构操作仍然有用（Compartment 复用没坏）');
+  ok(!!doc.querySelector('.cm-editor'), '操作后编辑器还在');
+
+  // 切回浅色
+  const light = doc.querySelector('#settings .seg[data-key="theme"] button[data-val="light"]');
+  if (light) click(light, '切浅色');
+  ok(doc.documentElement.getAttribute('data-theme') === 'light', '能切回浅色');
+}
+
+// ── 6. 汇总 ────────────────────────────────────────────────────────────
+console.log('\n控制台输出');
+if (problems.length) {
+  problems.slice(0, 15).forEach(p => console.log('  !!  ' + p));
+} else {
+  console.log('  OK  没有未捕获的错误');
+}
+if (logs.length) {
+  console.log('  --  其他输出:');
+  logs.slice(0, 8).forEach(l => console.log('      ' + l));
+}
+
+if (failures.length) {
+  console.log(`\n${failures.length} 条断言没过：`);
+  failures.forEach(f => console.log('  !!  ' + f));
+}
+const fatal = loadErrors.length + (bootErr ? 1 : 0) + problems.length + failures.length;
+console.log(fatal ? `\n${fatal} 处问题` : '\n整页跑通，没有错误');
+process.exit(fatal ? 1 : 0);

@@ -7,6 +7,8 @@
   "scripts": {
     "build": "node tools/build-vendor.mjs",
     "check": "node tools/check.js && node tools/check-level.js && node tools/check-editor.js",
+    "//check-boot": "整页无头跑一遍并真的去点。要 jsdom（devDependency），所以不在 check 里 —— check 必须能在裸 clone 上跑。",
+    "check-boot": "node tools/check-boot.js",
     "dev": "python -m http.server 8000"
   },
   "devDependencies": {
@@ -17,6 +19,7 @@
     "@codemirror/theme-one-dark": "^6.1.2",
     "@codemirror/view": "^6.35.0",
     "codemirror": "^6.0.1",
-    "esbuild": "^0.24.0"
+    "esbuild": "^0.24.0",
+    "jsdom": "^30.1.0"
   }
 }
