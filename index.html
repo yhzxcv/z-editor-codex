@@ -3,59 +3,56 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>代码图鉴 · PvZ2 关卡编辑器</title>
-<meta name="description" content="植物大战僵尸 2 关卡编辑器代码图鉴：按主题分类，支持中文名、代码、拼音首字母检索，点击即复制。">
+<title>关卡编辑器 · PvZ2</title>
+<meta name="description" content="植物大战僵尸 2 关卡编辑器网页版：对象树 + JSON 文本编辑 + 模块/事件插入 + 图鉴代码插入。">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1c2024" media="(prefers-color-scheme: dark)">
-<!-- 下面两个 ?v=2 是一次性的缓存作废标记，不是常规做法：
-     上线初期 _headers 给 /css/* /js/* 配过 max-age=3600，导致老访客浏览器里
-     存着旧 app.js / style.css（一小时内不回源），而 index.html 是新的 ——
-     表现为新按钮点不动、新样式不出现。改完 _headers 后这种「半个新版本」
-     不会再发生，所以以后改这两个文件**不需要**再动版本号。 -->
-<link rel="stylesheet" href="css/style.css?v=2">
+<link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 
 <div class="app">
-  <!-- 宽屏常驻；窄屏由 ☰ 唤出，同一份 DOM -->
-  <aside class="sidebar" id="sidebar" aria-label="章节与目录"></aside>
 
-  <div class="pane">
-    <header class="topbar">
-      <button class="icon-btn" id="btn-menu" type="button" aria-label="章节与目录">☰</button>
-      <div class="brand">代码图鉴</div>
-      <div class="search">
-        <span class="search-ico" aria-hidden="true">🔍</span>
-        <input id="q" type="search" placeholder="搜索名称、代码或拼音首字母"
-               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-               aria-label="搜索条目">
-        <button class="search-clear" id="q-clear" type="button" aria-label="清空搜索" hidden>✕</button>
-      </div>
-      <button class="icon-btn" id="btn-filter" type="button" aria-label="搜索范围" aria-haspopup="true">☑</button>
-      <button class="icon-btn" id="btn-settings" type="button" aria-label="设置" aria-haspopup="true">⚙</button>
-    </header>
+  <header class="topbar">
+    <button class="icon-btn" id="btn-menu" type="button" aria-label="侧栏">☰</button>
+    <div class="brand">关卡编辑器</div>
+    <div class="doc-name" id="doc-name">未打开文件</div>
+    <div class="grow"></div>
+    <button class="btn btn-sm" id="btn-open" type="button">打开</button>
+    <button class="btn btn-sm" id="btn-templates" type="button" aria-haspopup="true">模板</button>
+    <button class="btn btn-sm" id="btn-undo" type="button" hidden>撤销</button>
+    <button class="btn btn-sm btn-primary" id="btn-save" type="button">下载</button>
+    <button class="icon-btn" id="btn-settings" type="button" aria-label="设置" aria-haspopup="true">⚙</button>
+  </header>
 
-    <nav class="chapterbar" id="chapterbar" aria-label="章节"></nav>
-    <nav class="groupbar" id="groupbar" aria-label="分组"></nav>
+  <div class="body">
+    <aside class="sidebar" id="sidebar" aria-label="对象与插入">
+      <nav class="tabs">
+        <button type="button" data-tab="tree" class="on">对象</button>
+        <button type="button" data-tab="insert">插入</button>
+        <button type="button" data-tab="check">校验</button>
+      </nav>
+      <div class="tabpanel" id="panel-tree"></div>
+      <div class="tabpanel" id="panel-insert" hidden></div>
+      <div class="tabpanel" id="panel-check" hidden></div>
+    </aside>
 
-    <main class="content" id="content" tabindex="-1"></main>
+    <main class="main">
+      <div class="errbar" id="errbar" hidden></div>
+      <div class="editor" id="editor"></div>
+    </main>
   </div>
+
+  <footer class="statusbar" id="statusbar"></footer>
 </div>
 
-<div class="scrim" id="scrim" aria-hidden="true"></div>
+<div class="scrim" id="scrim" hidden></div>
+
+<!-- 模板下拉：选项由 js/editor/main.js 从 ZLevel.Templates 填 -->
+<div class="popover pop-list" id="tpl-pop" hidden></div>
 
 <div class="popover" id="settings" hidden>
   <div class="pop-title">设置</div>
-  <!-- RTID 的表名后缀（@PlantTypes 之类）来自各章数据文件里的 rtid 字段，
-       拼不出来就回退成带引号；这里不用也不能写死映射。 -->
-  <div class="pop-row stack">
-    <span>复制格式</span>
-    <div class="seg" data-key="format">
-      <button type="button" data-val="plain">纯代码</button>
-      <button type="button" data-val="quoted">带引号</button>
-      <button type="button" data-val="rtid">RTID语句</button>
-    </div>
-  </div>
   <div class="pop-row stack">
     <span>主题</span>
     <div class="seg" data-key="theme">
@@ -64,36 +61,48 @@
       <button type="button" data-val="dark">深色</button>
     </div>
   </div>
-  <!-- 四档：标准就是改动前的样子；紧凑/极紧只压字号和内边距，
-       单行改成「名称与代码并排」（省最多，代价是极少数长代码走省略号）。 -->
-  <div class="pop-row stack">
-    <span>条目密度</span>
-    <div class="seg" data-key="density">
-      <button type="button" data-val="standard">标准</button>
-      <button type="button" data-val="compact">紧凑</button>
-      <button type="button" data-val="tight">极紧</button>
-      <button type="button" data-val="single">单行</button>
-    </div>
-  </div>
-</div>
-
-<div class="popover" id="filter" hidden>
-  <div class="pop-title">搜索范围</div>
-  <!-- 章节加载完成后由 JS 填充：这里写死就拿不到各章条目数 -->
-  <div class="filter-list" id="filter-list"></div>
-  <div class="pop-actions">
-    <button type="button" data-fa="all">全选</button>
-    <button type="button" data-fa="none">清空</button>
-  </div>
+  <p class="pop-note">
+    未保存的内容只活在当前页面里。浏览器存储随时可能被清掉（Safari 对无互动的站点
+    7 天就清一次），<strong>唯一可靠的保存是点「下载」</strong>。
+  </p>
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<!-- 数据文件清单：新增章节先跑迁移生成 data/ch-xxx.js，再来这里加一行 -->
+<input type="file" id="file-input" accept=".json,application/json" hidden>
+
+<!-- 关卡逻辑层：顺序有依赖（rtid 最先，edit 最后） -->
+<script src="js/level/rtid.js"></script>
+<script src="js/level/order.js"></script>
+<script src="js/level/parse.js"></script>
+<script src="js/level/conflicts.js"></script>
+<script src="js/level/edit.js"></script>
+<script src="js/level/outline.js"></script>
+
+<!-- 编辑器数据 -->
+<script src="data/modules.js"></script>
+<script src="data/module-skeletons.js"></script>
+<script src="data/templates.js"></script>
+
+<!-- 代码图鉴的数据层（图鉴插入面板复用；UI 是编辑器自己的） -->
 <script src="js/chapters.js"></script>
 <script src="js/pinyin-table.js"></script>
 <script src="js/codex.js"></script>
 <script src="js/search.js"></script>
-<script src="js/app.js?v=2"></script>
+<script src="data/ch-plant.js"></script>
+<script src="data/ch-zombie.js"></script>
+<script src="data/ch-griditem.js"></script>
+<script src="data/ch-map.js"></script>
+<script src="data/ch-status.js"></script>
+
+<!-- CodeMirror 6，预先打好的 IIFE（见 tools/build-vendor.mjs） -->
+<script src="vendor/cm6.js"></script>
+
+<script src="js/editor/jsonpos.js"></script>
+<script src="js/editor/state.js"></script>
+<script src="js/editor/text.js"></script>
+<script src="js/editor/tree.js"></script>
+<script src="js/editor/panels.js"></script>
+<script src="js/editor/main.js"></script>
 </body>
 </html>

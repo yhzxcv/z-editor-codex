@@ -1,170 +1,224 @@
-# 代码图鉴（静态站）
+# 关卡编辑器（网页版）
 
-给 PvZ2 关卡编辑器用户查游戏代码用的网站。编辑器里会给一个链接跳到这里。
+把桌面端 **Z-Editor**（`E:\code\PVZ2LevelEditor`，Kotlin + Compose Desktop）的核心编辑能力
+搬到浏览器里的 PvZ2 关卡编辑器。功能和判定逻辑是从那套 Kotlin 源码**逐条搬过来的**，
+不是照着界面仿写的 —— 见下面「保真」一节。
 
-纯静态：**没有构建步骤，没有框架，没有依赖**。原生 JS + CSS，双击 `index.html` 就能在
-`file://` 下跑起来。部署在 Cloudflare Pages。
+纯静态：**没有构建步骤，没有框架，没有运行时依赖**。原生 JS + CSS，双击 `index.html`
+就能在 `file://` 下跑起来。部署在 Cloudflare Pages。
 
-## 文件结构
+> 这个仓库原先是「代码图鉴」静态站。图鉴的**数据层**（`data/ch-*.js`、`js/codex.js`、
+> `js/search.js`、拼音表）留下来了，作为编辑器里「图鉴插入」面板的数据源；
+> 图鉴那套界面（`js/app.js` + `css/style.css`）已随编辑器上线删除。
+> 删除前的完整站点备份在 `E:\code\z-editor-codex-backup-20260921`，打有标签 `codex-site-final`。
 
-**仓库根目录就是站点根目录**，没有 `codex-site/` 那一层。
+## 三层结构
 
 ```
-index.html            页面骨架
-_headers              Cloudflare Pages 响应头（唯一的 CF 专属文件）
-css/style.css         全部样式（含深浅色主题、响应式）
-js/chapters.js        章节清单 —— 加章节改这里
-js/pinyin-table.js    拼音首字母表（生成物，勿手改）
-js/codex.js           数据注册表：规整结构 -> 渲染单元 -> 扁平条目表
-js/search.js          检索与打分
-js/app.js             界面：渲染、滚动高亮、复制、设置
-data/ch-*.js          数据，唯一真源，手工维护。格式见 data/README.md
-tools/check.js        数据层自检，改完数据跑一下
-tools/gen_pinyin.py   重新生成拼音表
-tools/move_parens.py  把条目名里的（括号）内容挪进 note，支持 --dry-run
+js/level/    关卡逻辑层 —— 从 Kotlin 移植，纯函数，不碰 DOM
+js/editor/   编辑器界面层
+data/        数据：模块注册表、对象骨架、模板、图鉴条目
+vendor/      预打包的 CodeMirror 6（见「构建」一节）
 ```
 
-TXT 迁移工具 `tools/migrate.py` 不在这里（本仓库只放网站），见 `data/README.md`。
+**逻辑层和界面层是分开的**，这不是洁癖：逻辑层全部是不碰 DOM 的纯函数，
+所以 `tools/check-level.js` 里那 130 条断言能在 Node 里直接跑，不用开浏览器。
+写界面时踩的坑基本都靠这个分工在提交前拦住了。
 
-## 本地预览
+### `js/level/` —— 从 Kotlin 移植的逻辑
 
-直接双击 `index.html` 即可。
+| 文件 | 对应 Z-Editor 源码 | 干什么 |
+|---|---|---|
+| `rtid.js` | `Rtid.kt` | `RTID(别名@来源)` 的解析与拼装 |
+| `order.js` | `ObjectOrderRegistry.kt` | 130 项加载顺序表 + 自然序比较，决定保存时对象怎么排 |
+| `parse.js` | `LevelDataManager.kt` 等 | 可达性分析、孤儿对象、失效引用、别名重命名 |
+| `conflicts.js` | `ModuleConflictRegistry.kt` | 11 条模块互斥规则，中文说明照抄 |
+| `edit.js` | `LevelEditOperations.kt` 等 | 插入模块/事件、删对象、清孤儿、重命名 |
+| `outline.js` | — | 把扁平对象表整理成界面用的对象树（网页版新增，Kotlin 没有对应物） |
 
-要模拟线上环境（比如之后加 Service Worker），起个本地服务器：
+### `js/editor/` —— 界面
+
+| 文件 | 干什么 |
+|---|---|
+| `state.js` | 文档状态。文本是唯一真源，`objects` 是从文本解析出来的派生表示 |
+| `jsonpos.js` | JSON 第一个语法错误在哪 —— **为什么不用引擎报错的见下** |
+| `text.js` | CodeMirror 6 的封装：换文档、跳转、主题、语法错误波浪线 |
+| `tree.js` | 对象树渲染 |
+| `panels.js` | 「插入」「校验」两个侧栏面板 |
+| `main.js` | 把上面这些接起来 |
+
+## 保真：网页版跟 Z-Editor 是什么关系
+
+这是整个项目最要紧的一节。桌面版编辑器和网页版**同时存在**，用户会在两边改同一份
+关卡文件，所以行为必须对得上，否则文件会在两边来回改动中悄悄变形。
+
+### 文本编辑写的是字节，结构操作才重新序列化
+
+- **手打的字，保存时原样落盘**。编辑器不做「读进来 -> 解析 -> 重新序列化」那一套。
+  所以你在文本里留的 `1.0`、属性的原始顺序、缩进，保存后一个字节都不变。
+- **结构操作**（插入模块/事件、删对象、清孤儿）必须重新序列化整份 JSON，因为对象顺序
+  要按游戏的加载顺序重排。这一步会把数字写法规范化（`1.0` 写成 `1` —— 两者是同一个数，
+  不是数据丢失）。
+
+这个区别在界面上是**看得见的**：做过结构操作之后状态栏会出现「已做过结构操作」，
+悬停有解释。宁可多一句话，也不要让用户以为保存把文件弄坏了。
+
+### 判定逻辑照抄，一处不落地对着 Kotlin 核
+
+移植时不是「看着像就写」，而是把 Kotlin 源码读出来逐条对照。这样做抓出了 **Z-Editor
+自己的两个 bug** —— 网页版没有照着复现，而是**按意图修掉了**，都在代码里留了注释：
+
+1. **坚不可摧不自动打开 ManualStartup**。它判的是
+   `meta.defaultAlias == "LastStandMinigame"`，但注册表里
+   `LastStandMinigameProperties` 的 `defaultAlias` 是 **`"LastStand"`**，
+   全仓库没有任何模块叫 `LastStandMinigame` —— 那个分支从来没执行过。
+   网页版改成按 `objClass` 判定。
+2. **地底出怪的骨架少了两个字段**。`SpawnZombiesFromGroundSpawnerProps` 的工厂写的是
+   `WaveActionData()`（没有列范围），但同一个注册项的 `summaryProvider` 解析的是
+   `SpawnZombiesFromGroundData`，后者 `ColumnStart=6` / `ColumnEnd=9` 且非空。
+   网页版的骨架按 `summaryProvider` 的形状给。
+
+这两处都不影响网页版读旧文件，只是新插入的对象更符合游戏预期。
+
+### 契约闸：写进去的键名必须真的是游戏认的
+
+移植时我自己犯过一次错：把 `WaveManagerProps` 写成 `waveManagerProps`、
+`ManualStartup` 写成 `manualStartup`。**测试全绿** —— 因为实现和断言用的是同一个
+错名字，自己跟自己自洽。
+
+所以 `tools/check-level.js` 里加了一道「不信任自己」的闸：结构操作写出来的键名，要拿去
+跟**外部真源**对账 —— 骨架文件里的字段、和真实模板文件里的字段。写错名字会被这条拦下。
+同类闸门还有 `RTID_TABLES` 白名单（表名写错不会抛错，只会静默复制出错的 RTID）。
+
+### 模板逐字节比对
+
+`data/templates.js` 里 9 份模板是从 Z-Editor 的资源里抽出来的原文。
+
+- **存的文本**与源文件逐字节相同（`data/templates.js` 是生成物，由
+  `tools/gen-templates.mjs` 产出；生成时不碰换行符，见脚本里的注释）。
+- **解析后再序列化**回来的结果：7 份与原文逐字节相同，1 份只有数字写法差异
+  （`1.0` vs `1`，同一个数），1 份因为 Z-Editor 保存时本来就会重排顺序。
+  三类差异都有断言钉住，不是「看着差不多」。
+
+## 构建
+
+**唯一的构建步骤是 CodeMirror 6**：
 
 ```bash
-python -m http.server 8000    # 在仓库根目录执行，然后访问 http://localhost:8000
+npm install          # 只在需要重新打包 vendor 时跑
+npm run build        # -> vendor/cm6.js（411 KB）
 ```
 
-## 部署（Cloudflare Pages）
+CM6 只发 ESM，而 `file://` 下 `<script type="module">` 会被 CORS 拦掉。所以
+`tools/cm6-entry.mjs` 作为入口，用 esbuild 打成一个 IIFE 挂到 `window.CM` 上，
+「双击 `index.html` 就能跑」这条性质得以保留。
+
+`vendor/cm6.js` **是签入仓库的生成物**：日常改代码不需要 `npm install`，
+只有要动 CM6 用到的能力时才重新打包。改了 `tools/cm6-entry.mjs` 一定要重新打包 ——
+`tools/check-editor.js` 会拿产物里实际导出的成员名单跟代码里的用法对账，
+就是被这个坑坑过一次才加的（见下）。
+
+## 自检
+
+```bash
+npm run check        # 三个套件，全绿才算过
+```
+
+| 套件 | 断言数 | 查什么 |
+|---|---|---|
+| `tools/check.js` | 47 | 图鉴数据层：条目结构、RTID 表名白名单、检索 |
+| `tools/check-level.js` | 130 | 关卡逻辑层，含上面那道契约闸与模板逐字节比对 |
+| `tools/check-editor.js` | 32 | 界面接线：语法、资源存在与加载顺序、DOM id、样式类、CM 导出对账、错误定位 |
+
+**套件在任何机器上都能跑完整**，不依赖 Z-Editor 检出：金标准是上游那 9 个内置关卡模板，
+但那个路径写死在作者机器上，所以仓库里放了同样 9 份在 `tools/fixtures/templates/`。
+有检出时优先用检出（并顺手对一次账，发现上游模板改了而 fixtures 没跟着更新）；
+没有就用 fixtures，并在输出里明说用的是哪一份 —— 不静默降级。
+`data/templates.js`（生成物）的内容永远拿来跟这一份对账，所以编辑器「新建文档」写出去的
+文本始终是被钉住的。
+
+检出不在默认位置的话，用 `Z_EDITOR_REF` 指过去：
+
+```bash
+Z_EDITOR_REF=D:/PVZ2LevelEditor npm run check
+```
+
+`check-editor.js` 是**没有浏览器时的替代品**。它查的都是「跑起来才发现」的低级错误：
+`getElementById` 要的 id 在 HTML 里不存在、`<script>` 指的文件已删、类名写错、
+`window.CM` 上根本没有那个方法……最后一类是被坑出来的：曾经把 `CM.setDiagnostics`
+写进 `text.js` 而没重新打包 vendor，语法自检全绿、跑起来波浪线就是不出现。
+现在它会直接读 `vendor/cm6.js` 末尾那个 `window.CM={...}` 字面量来对账。
+
+它的最后一节会把 `jsonpos.js` / `text.js` / `state.js` 塞进 `vm` **真跑一遍**
+（这三个模块不碰 DOM），逐个字符钉死「手滑时波浪线画在哪、说什么」。
+
+## 为什么错误位置是自己扫的
+
+`jsonpos.js` 自己实现了一个 JSON 扫描器，用来定位第一个语法错误。原因是**引擎给的
+位置在最常见的两种手滑上根本没有**：
+
+```
+{"objects": [}    ->  Unexpected token '}', "{"objects": [}" is not valid JSON
+{"objects": [     ->  Unexpected end of JSON input
+```
+
+两条都没有 position / line / column —— 而它们恰恰是打字打到一半的样子。直接取引擎
+位置的话波浪线永远画在第一行，比不画还误导。而且三个引擎给位置的形式各不相同
+（V8 用 `at position N`，Firefox 用 `at line L column C`），要正确解析得写三套。
+
+扫描器只在 `JSON.parse` **失败之后**才跑，正常打字路径上一次都不执行；它给的错误
+消息直接就是中文，引擎原文留在横幅的悬停提示里（它是权威，扫描器只是更会指路）。
+
+## 本地预览 / 部署
+
+双击 `index.html` 即可。要起服务器（比如之后加 Service Worker）：
+
+```bash
+npm run dev          # python -m http.server 8000
+```
+
+Cloudflare Pages：
 
 | 配置项 | 值 |
 |---|---|
-| 根目录（Root directory） | 留空（默认就是仓库根） |
-| 框架预设（Framework preset） | `None` |
-| 构建命令（Build command） | `exit 0` |
-| 输出目录（Build output directory） | `.` |
+| 根目录 | 留空（默认就是仓库根） |
+| 框架预设 | `None` |
+| 构建命令 | `exit 0` |
+| 输出目录 | `.` |
 
-**输出目录填 `.`**（一个点）——CF 默认去 `public` 找产物，而站点就在仓库根，不覆盖会部署出空站；
-`./` 会被拒。**构建命令填 `exit 0` 而不是留空**——留空时 CF 可能退回默认行为去跑 `npm run build`，
-仓库里没有 `package.json`，会直接失败。
+**输出目录填 `.`**（一个点）—— CF 默认去 `public` 找产物，而站点就在仓库根，不覆盖会部署出空站；
+`./` 会被拒。**构建命令填 `exit 0` 而不是留空** —— 留空时 CF 可能退回默认行为去跑
+`npm run build`，那会真去打包 vendor（慢，而且产物已经签入了）。
 
-两种发布方式：
-
-- **Git 集成**：控制台连上仓库，以后 push 到 `master` 自动部署。生产分支设 `master`。
-- **直接上传**（适合只想要个临时预览）：`npx wrangler pages deploy . --project-name z-editor-codex`
-
-`_headers` 是唯一的 Cloudflare 专属文件，管缓存与几个安全头，**必须在发布根目录**（也就是仓库根）。
-CF 会自己吃掉这个文件、不对外提供。
-
+`_headers` 是唯一的 Cloudflare 专属文件，管缓存与几个安全头，必须在发布根目录。
 **缓存必须设成 `max-age=0, must-revalidate`，不能图省事给 `js/` `css/` 配长时间缓存。**
-站点没有构建步骤、文件名也不带内容哈希，所以「部署清缓存」只清了 Cloudflare 边缘节点，
-**管不到访客浏览器里已经存下的副本**。踩过的坑：`/js/*` `/css/*` 配了 `max-age=3600` 之后，
-`index.html`（走 CF 默认的每次回源校验）是新的、而 `js/app.js` / `css/style.css` 一小时不回源是旧的，
-结果是**新按钮画得出来但点了没反应、新样式不出现**——这种「半个新版本」最难排查。
-`max-age=0` 下没变的文件 CF 回 304，全站合计才 240KB，代价可以忽略。
+站点没有内容哈希文件名，「部署清缓存」只清了 CF 边缘节点，管不到访客浏览器里已经存下的副本。
+踩过的坑：`/js/*` `/css/*` 配了 `max-age=3600` 之后，`index.html` 是新的而 js/css 是旧的，
+表现是**新按钮画得出来但点了没反应**——这种「半个新版本」最难排查。
 
-**换平台几乎零成本**：全部是相对路径，整个仓库丢给任何静态托管都能跑，挂在子路径下也不用改代码。
+**换平台几乎零成本**：全部是相对路径，整个仓库丢给任何静态托管都能跑，挂子路径下也不用改代码。
 
-**改数据文件（`data/ch-*.js`）之后要留意一件事**：`index.html` 里那两句 `?v=2` 只作废了
-`css/style.css` 和 `js/app.js`，数据文件是通过 `js/chapters.js` 的清单裸路径加载的，没有查询串。
-所以旧缓存还没过期的访客会拿到「新界面 + 旧数据」。真踩过一次：手机上是没加 `rtid` 的旧
-`data/ch-plant.js`，而 `js/app.js` 已经是支持 RTID 的新版，表现是**选了 RTID 却复制出带引号的
-裸代码**，看着像 RTID 功能坏了。现在全站 `must-revalidate`，这种情况最多持续到旧副本过期，
-再硬刷新一次就好；真要立刻作废，得手动清一次手机上的站点数据。
+## 图鉴数据层（沿用）
 
-## 设计要点
+`data/ch-*.js` 是图鉴条目的唯一真源，手工维护，格式见 `data/README.md`。
+编辑器里的「图鉴插入」面板复用它：搜中文名 / 代码 / 拼音首字母，点一下把代码插到光标处。
 
-**为什么数据是 `.js` 而不是 `.json`**：`file://` 下 `fetch` 会被 CORS 拦掉，而 `<script>`
+复制格式三档（纯代码 / 带引号 / RTID）跟原图鉴站一致，**共用同一个 localStorage 键**
+（`zeditor.copyFormat`），所以两边设置是通的。RTID 表名来自数据里的 `rtid` 字段，
+不是 UI 里写死的映射表 —— 维持「新增章节不用改 UI」这条约定。拼不出 RTID 时回退成
+「带引号」而不是裸代码。
+
+**为什么图鉴数据是 `.js` 而不是 `.json`**：`file://` 下 `fetch` 会被 CORS 拦掉，而 `<script>`
 不会。用 `.js` + `Codex.add({...})` 还顺带允许写注释和尾逗号，手工维护友好得多。
-
-**为什么滚动容器是 `.content` 而不是 window**：这样吸顶的分组标题 `top` 恒为 0，
-不用按断点重算偏移量；顶栏和分组 chips 也永远不动。代价是不能靠地址栏自动收起，
-对工具类页面来说划算。
-
-**分组 chips 的滚动高亮**用 `.group` 的 `offsetTop` 判定（不是 `.group-head`——
-sticky 元素的 offsetTop 会被吸顶位移污染），配合 `position: relative` 的 `.content` 作为
-`offsetParent`。所以改布局时别给 `.group` 加 `position`。
-
-**检索是全局跨章节的**：在「僵尸」页搜「豌豆射手」也要有结果，所以索引按章惰性构建、
-缓存在 `chapter._index` 上，查询时把所有已加载章节一起打分。1500 条规模下线性扫描
-比倒排索引更快也更好维护，暂时不需要防抖。
-
-**拼音表**用 GB2312 一级汉字区（按拼音排序）的 23 个边界字离线切出来，只依赖标准库，
-不用装 `pypinyin`。覆盖 3755 个常用字；二级汉字和生僻字没有拼音首字母，按原字匹配即可。
-
-## 断点
-
-只有一个：**940px**。
-
-- 以下：单列，章节 chips + 分组 chips + 吸顶分组标题；侧栏变成 ☰ 抽屉（同一份 DOM）。
-- 以上：侧栏常驻（章节 + 目录），两个 chips 行让位，条目区变 2–3 列网格，复制图标改成 hover 显示。
-
-## 条目密度
-
-设置里有四档：**标准 / 紧凑 / 极紧 / 单行**，跟其他设置一起存在 `codex.settings.v1` 里。
-
-实现上只在 `<html>` 上写一个 `data-density` 属性，CSS 用 `:root[data-density="…"]` 换掉一组
-`--fs-*` / `--pad-*` token，而所有相关规则一律读 token —— 所以加档位只改 token 块，不用碰布局规则。
-`standard` 不写属性（等同 `:root` 的默认值），跟主题的 `auto` 是同一个套路。
-
-行高实测（植物章 429 条，手机内容宽 376px）：标准 57px（整章 25896px）、紧凑 49px（22291px）、
-极紧 43px（19578px）、单行 35px（16205px）。**前三档只压字号和内边距，收益有上限**——
-一行 57px 里有 40px 是「名称一行 + 代码一行」这段内容本身，压到底也只到 43px；
-想再紧只能改行内布局，也就是「单行」档（名称与代码并排）。单行档的代价也量过：
-429 条里只有 1 条长代码会走省略号，名称一条都没被截。
-
-一个坑：宽屏「比窄屏松一点」原本是三处写死的 `padding`（`.item` / `.group-head` / `.sect-head`），
-如果照原样留着，940px 媒体查询里的写死值会把档位效果整个盖掉。现在拆成 `--lg-*` 补偿量加在
-token 上，标准档下宽屏的最终值跟改动前逐像素一致。
-
-## 复制格式
-
-设置里三档，点条目右侧的复制图标（窄屏是整行）时决定复制出什么：
-
-| 档位 | 复制结果（以 `peashooter` 为例） |
-|---|---|
-| 纯代码（默认） | `peashooter` |
-| 带引号 | `"peashooter"` |
-| RTID语句 | `"RTID(peashooter@PlantTypes)"` |
-
-RTID 的表名后缀**来自数据**（`data/ch-*.js` 里的 `rtid` 字段），不是写死在 UI 里的映射表
-——这样维持「新增章节不用改 UI」这条约定。
-
-RTID 档**连外层引号一起复制**：关卡 JSON 里的值本来就是这个形状
-（编辑器 `PvzDataModels.kt` 的 `Type` 字段默认值、`代码图鉴.txt` 里的样例都是
-`"RTID(hamster_ball@ZombieTypes)"`），粘进 JSON 时缺了引号还得自己补。
-
-**拼不出 RTID 时回退成「带引号」，不是回退成裸代码。** 后面还有 7 章要迁，其中一部分内容
-（音乐、主题、模块 JSON 之类）根本没有 RTID 表。回退到带引号有两个理由：勾了 RTID 的人要的是
-能直接粘进关卡 JSON 的字符串字面量，裸代码在那个语境下一样是错的；而且 RTID 档本身就是带
-引号的，回退后形状和正常结果一致，不会突然变成一个没引号的裸串。
-
-回退**会出声**：toast 变成 `已复制 "peashooter"（本章无 RTID 表，回退带引号）`，停留 2.6s
-而不是默认的 1.5s。这条说明是踩坑加的——静默换一种结果会被当成功能坏了（见上面部署那节
-说的旧数据缓存），有这句话就能一眼分辨「数据没有表名」和「代码没生效」。
-
-数据侧两级写法：
-
-| 写法 | 效果 |
-|---|---|
-| 章节写 `rtid: 'ZombieTypes'` | 该章默认都按这个表名拼 |
-| 章节不写 `rtid` | 该章一律回退带引号 |
-| 条目写 `rtid: ''` | **只有这一条**回退带引号，章节有表名也盖掉 |
-| 条目写 `rtid: 'xxx'` | 这一条改用别的表名 |
-
-「没写」和「写成空串」是两件事——前者是跟随章节，后者是明确不支持。所以 `js/codex.js`
-的 `normItem` 只在数据里真有这个键时才带上它，没有写成 `(it.rtid || '')` 一把梭（那会把
-两种情况压成一种，条目级的「明确不支持」就永远表达不出来）。
-
-表名写错不会抛错、只会静默复制出错的 RTID，所以 `tools/check.js` 里有一道白名单
-（`RTID_TABLES`），章节级和条目级都拦；校验故意放在自检工具而不是界面里，UI 不耦合具体表名。
+`data/modules.js` / `data/templates.js` 同理（两者是生成物，分别由
+`tools/gen-modules.mjs` / `tools/gen-templates.mjs` 从 Z-Editor 源码抽）。
 
 ## 待办
 
-- Service Worker 离线缓存（需要 https 或 localhost，托管方案定了再做）
-- 其余 7 章迁移：动物事件、工具代码、场景/地图代码、音乐模块、状态代码、子弹代码、主题代码。
-  迁移工具 `tools/migrate.py` 不在本仓库，要在 Z-Editor 那份检出里跑完再把数据拷过来，
-  详见 `data/README.md`
-- 模块代码章节（217 个 JSON 模板，复制时要剥掉 `#` 注释）—— 二期
-- 编辑器侧加链接
+- **界面从没在浏览器里跑过**。接线自检覆盖了大部分「点了没反应」，但布局、抽屉侧栏、
+  树的行内删除按钮、主题切换这些还是纸上推演，需要人工过一遍
+- 图鉴插入面板目前只有 5 章（植物 / 僵尸 / 障碍物 / 地图 / 状态）。Z-Editor 那边还有
+  模块代码、事件代码两章数据（`docs/registry-raw.json`），没做成 `data/ch-module.js`
+- `ChallengeRepository.kt` 是第三个注册表（另有 18 个 `initialDataFactory`），骨架没收录
+- 结构操作后可考虑保留「原始字节」用于 diff 提示（现在只是标记「已做过结构操作」）
+- Service Worker 离线缓存（需要 https 或 localhost）

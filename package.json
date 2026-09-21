@@ -1,0 +1,22 @@
+{
+  "name": "z-editor-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Z-Editor 网页版：PvZ2 关卡编辑器（对象树 + 文本编辑 + 图鉴插入）",
+  "//type": "故意不写 \"type\": \"module\" —— 现有的 tools/check.js 是 CommonJS（用 require）， 声明了 type=module 会把它一起变成 ESM 而直接跑不起来。需要 ESM 的脚本用 .mjs 扩展名区分。",
+  "scripts": {
+    "build": "node tools/build-vendor.mjs",
+    "check": "node tools/check.js && node tools/check-level.js && node tools/check-editor.js",
+    "dev": "python -m http.server 8000"
+  },
+  "devDependencies": {
+    "@codemirror/lang-json": "^6.0.1",
+    "@codemirror/lint": "^6.8.4",
+    "@codemirror/search": "^6.5.8",
+    "@codemirror/state": "^6.5.0",
+    "@codemirror/theme-one-dark": "^6.1.2",
+    "@codemirror/view": "^6.35.0",
+    "codemirror": "^6.0.1",
+    "esbuild": "^0.24.0"
+  }
+}

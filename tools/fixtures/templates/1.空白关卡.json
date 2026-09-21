@@ -1,0 +1,17 @@
+{
+  "objects": [
+    {
+      "objclass": "LevelDefinition",
+      "objdata": {
+        "Description": "",
+        "LevelNumber": 1,
+        "Loot": "RTID(DefaultLoot@LevelModules)",
+        "Modules": [],
+        "Name": "",
+        "StageModule": "RTID(TutorialStage@LevelModules)",
+        "VictoryModule": "RTID(VictoryOutro@LevelModules)"
+      }
+    }
+  ],
+  "version": 1
+}

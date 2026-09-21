@@ -1,0 +1,11 @@
+# 依赖：只有重新打包 CodeMirror 时才需要 npm install
+node_modules/
+
+# vendor/cm6.js 是**故意签入**的生成物，不要忽略它 ——
+# 日常改代码不需要装依赖，双击 index.html 就能跑，靠的就是它在仓库里。
+# 见 README「构建」一节。
+
+# 编辑器 / 系统留下的杂物
+.DS_Store
+Thumbs.db
+*.swp

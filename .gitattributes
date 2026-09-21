@@ -1,0 +1,11 @@
+# 这几个文件必须逐字节原样进出仓库，任何换行转换都会让自检假报差异。
+
+# 关卡模板 fixtures：tools/check-level.js 拿它们跟 data/templates.js 里存的文本
+# 直接比字节。Windows 上 core.autocrlf=true 的话，检出时会被换成 CRLF，
+# 于是「模板逐字节相同」这条断言在别人机器上必红 —— 而那不是真的出了问题。
+# -text 关掉一切换行转换，二进制搬运。
+tools/fixtures/templates/*.json  -text
+
+# 图鉴 TXT 源文同理：它是 data/ch-*.js 的源头，迁移工具按行处理，
+# 换行被改写会让「跟源文对得上」这件事失去意义。
+代码图鉴.txt  -text
