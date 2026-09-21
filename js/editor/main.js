@@ -111,9 +111,15 @@
     }
 
     BY_ID('doc-name').textContent = s.fileName || '未打开文件';
+
+    // ⚠ 撤销栈不在订阅回调收到的那份记录上（那是纯数据），要问 state 对象。
+    // 曾经写成 s.canUndo() —— s 上没有这个方法，renderStatus 当场抛异常，
+    // 于是它后面的三个面板全都画不出来，表现是"页面在，点什么都没反应"。
     var undoBtn = BY_ID('btn-undo');
-    undoBtn.hidden = !s.canUndo();
-    if (s.canUndo()) undoBtn.title = '撤销' + s.undoLabel() + '（结构操作走不到编辑器的撤销栈，用这个）';
+    undoBtn.hidden = !state.canUndo();
+    if (state.canUndo()) {
+      undoBtn.title = '撤销' + state.undoLabel() + '（结构操作走不到编辑器的撤销栈，用这个）';
+    }
     renderErrorBar(s);
   }
 

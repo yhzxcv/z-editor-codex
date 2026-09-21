@@ -33,6 +33,16 @@ window.ZEditor.State = (function () {
       undoStack: []
     };
 
+    /**
+     * 通知订阅者。
+     *
+     * 传出去的是**纯数据记录**（`s` 本身），它上面只有 fileName / text /
+     * objects / parseError / normalized / source —— **没有任何方法**。
+     * 订阅者要用 canUndo() / undo() 这些，得去调 create() 返回的那个对象。
+     *
+     * 这条分界踩过一次：renderStatus 里写了 `s.canUndo()`，抛异常，
+     * 连带它后面的三个面板全画不出来，表现是"页面在、点谁都没反应"。
+     */
     function emit() { listeners.forEach(function (fn) { fn(s); }); }
 
     function parseInto(text) {

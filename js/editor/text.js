@@ -20,6 +20,24 @@ window.ZEditor.Text = (function () {
     opts = opts || {};
     var themeComp = new CM.Compartment();
 
+    // ⚠ 顺序要紧：下面建 extensions 时就会调 currentTheme()，而它要读 mq。
+    // 这三样必须都排在 extensions 前面 —— 曾经把 mq 写在 extensions 之后，
+    // 靠 var 提升拿到一个 undefined，于是 create() 第一句就抛
+    // "Cannot read properties of undefined (reading 'matches')"，
+    // boot() 当场死掉：页面画得出来、按钮 hover 有手型、但点谁都没反应。
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+
+    function currentTheme() {
+      // 页面自己设了 data-theme 时以页面为准，别被系统主题盖掉
+      var forced = document.documentElement.getAttribute('data-theme');
+      var dark = forced ? forced === 'dark' : mq.matches;
+      return dark ? CM.oneDark : [];
+    }
+
+    var onTheme = function () {
+      view.dispatch({ effects: themeComp.reconfigure(currentTheme()) });
+    };
+
     // 扩展列表只建一次，setText 重建 state 时复用同一份（Compartment 实例必须
     // 跟着复用，否则主题那条 reconfigure 会打到已经作废的 compartment 上）
     var extensions = [
@@ -41,18 +59,7 @@ window.ZEditor.Text = (function () {
     var view = new CM.EditorView({ state: state, parent: container });
 
     // 跟随系统主题切换编辑器配色
-    var mq = window.matchMedia('(prefers-color-scheme: dark)');
-    var onTheme = function () {
-      // 页面自己设了 data-theme 时以页面为准，别被系统主题盖掉
-      view.dispatch({ effects: themeComp.reconfigure(currentTheme()) });
-    };
     if (mq.addEventListener) mq.addEventListener('change', onTheme);
-
-    function currentTheme() {
-      var forced = document.documentElement.getAttribute('data-theme');
-      var dark = forced ? forced === 'dark' : mq.matches;
-      return dark ? CM.oneDark : [];
-    }
 
     return {
       view: view,
