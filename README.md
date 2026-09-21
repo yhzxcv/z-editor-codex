@@ -128,7 +128,7 @@ npm run check        # 三个套件，全绿才算过
 |---|---|---|
 | `tools/check.js` | 47 | 图鉴数据层：条目结构、RTID 表名白名单、检索 |
 | `tools/check-level.js` | 130 | 关卡逻辑层，含上面那道契约闸与模板逐字节比对 |
-| `tools/check-editor.js` | 32 | 界面接线：语法、资源存在与加载顺序、DOM id、样式类、CM 导出对账、错误定位 |
+| `tools/check-editor.js` | 36 | 界面接线：语法、资源存在、DOM id、样式类、CM 导出对账、错误定位、**按 HTML 顺序真加载一遍** |
 
 **套件在任何机器上都能跑完整**，不依赖 Z-Editor 检出：金标准是上游那 9 个内置关卡模板，
 但那个路径写死在作者机器上，所以仓库里放了同样 9 份在 `tools/fixtures/templates/`。
@@ -149,8 +149,15 @@ Z_EDITOR_REF=D:/PVZ2LevelEditor npm run check
 写进 `text.js` 而没重新打包 vendor，语法自检全绿、跑起来波浪线就是不出现。
 现在它会直接读 `vendor/cm6.js` 末尾那个 `window.CM={...}` 字面量来对账。
 
-它的最后一节会把 `jsonpos.js` / `text.js` / `state.js` 塞进 `vm` **真跑一遍**
-（这三个模块不碰 DOM），逐个字符钉死「手滑时波浪线画在哪、说什么」。
+它还会把 `jsonpos.js` / `text.js` / `state.js` 塞进 `vm` **真跑一遍**（这三个模块不碰
+DOM），逐个字符钉死「手滑时波浪线画在哪、说什么」；最后按 `index.html` 里的**实际顺序**
+把所有脚本加载一遍（配一个最小 DOM 桩），抓「依赖还没加载就去读它」。
+
+最后这条值得说一句，因为它第一版是**假的**：原先写的是「加载完之后看
+`window.ZLevel.Edit` 在不在」—— 顺序错了也照样绿，因为那时 edit.js 早加载完了，
+而 `main.js` 抓到的是它自己那个 `undefined` 快照。改成给命名空间套 `Proxy`、
+在**读的那一刻**记账之后才真正管用。验证方式是故意把 `edit.js` 挪到 `main.js`
+后面，确认那条断言会红、而另外两条确实瞎。
 
 ## 为什么错误位置是自己扫的
 

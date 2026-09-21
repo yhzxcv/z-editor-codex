@@ -1,14 +1,22 @@
 /* 编辑器界面接线自检：不打开浏览器也能查出大部分"点了没反应"的错误。
  * 用法: node tools/check-editor.js
  *
- * 查的是四类事：
- *   1. 语法 —— 每个 js 文件都能被解析（node --check 的等价物）
- *   2. 资源 —— index.html 里 <script src> / <link href> 指的文件都存在
- *   3. DOM  —— JS 里 getElementById 要的每个 id，index.html 里都有
- *   4. 页签 —— data-tab="x" 对应的 panel-x 存在
+ * 查的是八类事，前五节"看"代码，后三节"跑"代码：
+ *   1. 语法   —— 每个 js 文件都能被解析（node --check 的等价物）
+ *   2. 资源   —— index.html 里引用的文件都存在，且关键几对的顺序对
+ *   3. DOM    —— JS 里 getElementById 要的每个 id，index.html 里都有
+ *   4. 页签   —— data-tab="x" 对应的 panel-x 存在
+ *   5. 样式   —— JS/HTML 里用到的类名，样式表里都有定义
+ *   6. CM 导出 —— vendor/cm6.js 真的导出了编辑器代码要用的每个成员
+ *   7. 错误定位 —— jsonpos/text/state 塞进 vm 真跑，钉死波浪线画在哪
+ *   8. 加载顺序 —— 按 index.html 的顺序真加载一遍，抓"读的时候还没定义"
  *
  * 这些都是"跑起来才发现"的低级错误，但本站没有构建步骤、也没配 CI，
  * 所以只能靠这个脚本在提交前拦一道。
+ *
+ * 写检查时的教训：**能"事后看一眼"的断言，对加载顺序是瞎的**。
+ * 第 8 节里"加载后命名空间都在"那条，顺序错了照样绿 —— 因为那时依赖早
+ * 加载完了。真正管用的是 Proxy 在读的那一刻记的账（见那一节的注释）。
  */
 'use strict';
 const path = require('path');
@@ -307,6 +315,163 @@ console.log('\n解析错误定位');
   ok(zhBad.length === 0, `${ZH.length} 条引擎报错都能翻成人话（翻不动就原样留着）`, zhBad.join(' | '));
   // 扫描器给的中文不该被翻译规则二次加工
   ok(Text2.zhError('这个对象没有收尾的 }') === '这个对象没有收尾的 }', '中文消息原样通过');
+}
+
+// ── 8. 按 index.html 的顺序真加载一遍 ─────────────────────────────────
+//
+// 前面几节都是"看"代码，这一节是"跑"代码：把 index.html 里的 <script>
+// 按**实际顺序**在一个 vm 里执行一遍（给一个最小 DOM 桩），任何一句在模块
+// 顶层就抛异常都会被抓到。
+//
+// 抓的主要是加载顺序错：main.js 开头就 `var Edit = window.ZLevel.Edit;`，
+// 要是 edit.js 排在它后面，Edit 就是 undefined —— 界面上每个"插入"按钮
+// 都点了没反应，而且不报错。静态检查只钉了几对已知依赖，这里是全序验证。
+//
+// ⚠ 顺序错**不能靠"全部加载完之后再看一眼"**：那时候 edit.js 早加载完了，
+// ZLevel.Edit 好好地在，断言全绿而 bug 还在（main.js 抓到的是它自己那个
+// undefined 快照）。所以这里给两个命名空间套 Proxy，在**读的那一刻**记账：
+// 谁读到了 undefined 就记一条。下面对 earlyReads 的断言才是真正管用的那条。
+//
+// 注意 boot() 不会执行（桩里 document.readyState 是 loading，只会注册
+// DOMContentLoaded 回调），所以这里查的是"加载得起来"，不是"跑得对"。
+console.log('\n按 HTML 顺序加载');
+{
+  const srcs = [...html.matchAll(/<script src="([^"]+)"/g)].map(m => m[1]);
+
+  function stubEl() {
+    const e = {
+      style: {}, dataset: {}, hidden: false, value: '', textContent: '',
+      className: '', title: '', type: '', placeholder: '', disabled: false,
+      files: [], children: [],
+      classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+      appendChild(c) { e.children.push(c); return c; },
+      removeChild() {}, insertBefore() {}, click() {}, focus() {}, blur() {},
+      addEventListener() {}, removeEventListener() {}, stopPropagation() {},
+      setAttribute() {}, getAttribute: () => null, removeAttribute() {},
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
+      querySelector: () => null, querySelectorAll: () => [],
+      closest: () => null, contains: () => false,
+      cloneNode() { return stubEl(); }
+    };
+    return e;
+  }
+
+  const doc = {
+    readyState: 'loading',                 // 关键：boot() 因此不会执行
+    documentElement: stubEl(), body: stubEl(), head: stubEl(),
+    addEventListener() {}, removeEventListener() {},
+    getElementById: () => stubEl(),
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    createElement: () => stubEl(),
+    createTextNode: () => stubEl(),
+    createDocumentFragment: () => stubEl()
+  };
+
+  const win = {
+    ZEditor: {}, ZLevel: {},
+    // text.js 只在 create() 里用 CM，加载期不碰；给个空对象占位
+    CM: {},
+    matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    location: { href: 'file:///index.html', search: '' },
+    navigator: { userAgent: 'node' },
+    innerWidth: 1200, innerHeight: 800,
+    setTimeout: () => 0, clearTimeout() {}, requestAnimationFrame: () => 0,
+    confirm: () => true, alert() {}, addEventListener() {},
+    FileReader: function () {}, Blob: function () {}, URL: { createObjectURL: () => '', revokeObjectURL() {} },
+    console
+  };
+  // 浏览器里 window 的属性和全局变量是同一个东西（`Codex.add(...)` 和
+  // `window.Codex.add(...)` 等价，data/ch-*.js 两种都用了）。所以桩也得这样：
+  // sandbox 自己当 window，而不是把 window 塞成它的一个属性 ——
+  // 后者会让裸标识符 `Codex` 找不到。
+  const sandbox = Object.assign({}, win, {
+    document: doc, console,
+    setTimeout: () => 0, clearTimeout() {},
+    JSON, Math, Date, Object, Array, String, Number, Boolean, RegExp, Error,
+    isNaN, parseInt, parseFloat
+  });
+  sandbox.window = sandbox;
+
+  // 监视名单：真正会被 main.js 抓成局部变量的那些模块。命名空间自己
+  // （ZLevel / ZEditor）不在名单里 —— 每个文件开头的 `window.ZEditor = window.ZEditor || {}`
+  // 就是故意读 undefined 的自举写法，算进去会满屏误报。
+  const WATCHED = ['Rtid', 'Order', 'Parse', 'Conflicts', 'Edit', 'Outline',
+    'State', 'Text', 'Tree', 'Panels', 'Templates', 'Skeletons', 'Modules'];
+
+  let loading = '';                        // 当前正在加载哪个脚本
+  const earlyReads = [];
+  function watch(ns) {
+    return new Proxy(ns, {
+      get(t, k) {
+        const v = t[k];
+        if (v === undefined && WATCHED.indexOf(k) >= 0) {
+          earlyReads.push(`${loading} 里读 ${String(k)}（当时还没定义）`);
+        }
+        return v;
+      }
+    });
+  }
+  sandbox.ZLevel = watch(sandbox.ZLevel);
+  sandbox.ZEditor = watch(sandbox.ZEditor);
+
+  vm.createContext(sandbox);
+  const win2 = sandbox;                    // 后面断言用这个
+
+  const threw = [];
+  for (const s of srcs) {
+    if (/^https?:/.test(s)) continue;
+    let code;
+    try { code = fs.readFileSync(path.join(ROOT, s), 'utf8'); }
+    catch (e) { threw.push(`${s}: 读不到`); continue; }
+    loading = s;
+    try {
+      vm.runInContext(code, sandbox, { filename: s });
+    } catch (e) {
+      threw.push(`${s}: ${e.message}`);
+    }
+  }
+  loading = '';
+  ok(threw.length === 0, `${srcs.length} 个脚本按 HTML 顺序加载都没在顶层抛异常`,
+    threw.slice(0, 3).join(' | '));
+
+  // 这条才是真正管加载顺序的：上面那两条事后断言，顺序错了也照样绿。
+  ok(earlyReads.length === 0, '没有脚本在依赖还没加载时就去读它（加载顺序正确）',
+    earlyReads.slice(0, 3).join(' | '));
+
+  // 加载完之后，界面代码要用的那几个命名空间必须真的在
+  const NS = [
+    ['window.ZLevel.Edit', win2.ZLevel && win2.ZLevel.Edit],
+    ['window.ZLevel.Parse', win2.ZLevel && win2.ZLevel.Parse],
+    ['window.ZLevel.Outline', win2.ZLevel && win2.ZLevel.Outline],
+    ['window.ZLevel.Conflicts', win2.ZLevel && win2.ZLevel.Conflicts],
+    ['window.ZLevel.Templates', win2.ZLevel && win2.ZLevel.Templates],
+    ['window.ZLevel.Skeletons', win2.ZLevel && win2.ZLevel.Skeletons],
+    ['window.ZLevel.Modules', win2.ZLevel && win2.ZLevel.Modules],
+    ['window.ZEditor.State', win2.ZEditor && win2.ZEditor.State],
+    ['window.ZEditor.Text', win2.ZEditor && win2.ZEditor.Text],
+    ['window.ZEditor.Tree', win2.ZEditor && win2.ZEditor.Tree],
+    ['window.ZEditor.Panels', win2.ZEditor && win2.ZEditor.Panels],
+    ['window.Codex', win2.Codex],
+    ['window.CodexSearch', win2.CodexSearch]
+  ];
+  const gone = NS.filter(([, v]) => !v).map(([k]) => k);
+  ok(gone.length === 0, `加载后 ${NS.length} 个命名空间都在`, gone.join(', '));
+
+  // main.js 顶层就把这几个抓成了局部变量（见它开头那几行）。顺序错了这里就是
+  // undefined，而且要到用户点按钮时才炸 —— 所以正面钉一下类型。
+  const TYPES = [
+    ['ZLevel.Edit.insertModule', win2.ZLevel && win2.ZLevel.Edit && typeof win2.ZLevel.Edit.insertModule],
+    ['ZLevel.Outline.build', win2.ZLevel && win2.ZLevel.Outline && typeof win2.ZLevel.Outline.build],
+    ['ZEditor.Text.create', win2.ZEditor && win2.ZEditor.Text && typeof win2.ZEditor.Text.create],
+    ['ZEditor.Text.diagnosticOf', win2.ZEditor && win2.ZEditor.Text && typeof win2.ZEditor.Text.diagnosticOf],
+    ['ZEditor.State.create', win2.ZEditor && win2.ZEditor.State && typeof win2.ZEditor.State.create],
+    ['Codex.chapters', win2.Codex && typeof win2.Codex.chapters]
+  ];
+  const notFn = TYPES.filter(([k, t]) => k === 'Codex.chapters' ? t === 'undefined' : t !== 'function')
+    .map(([k, t]) => `${k}=${t}`);
+  ok(notFn.length === 0, '界面要调用的入口函数都到位了', notFn.join(', '));
 }
 
 console.log(fail ? `\n${fail} 项未通过` : '\n全部通过');
