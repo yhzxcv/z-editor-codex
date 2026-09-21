@@ -7,7 +7,12 @@
 Codex.add({
   id: 'griditem',
   title: '障碍物代码',
-  rtid: 'GriditemTypes',
+  // 表名是 GridItemTypes（大写 I）。这里原先是 'GriditemTypes'，小写 i ——
+  // 上游资产和 Kotlin 源码里都只有大写那种写法（@GridItemTypes 出现 6 次），
+  // 小写的一个都没有，所以复制出来的 RTID 游戏是解析不开的。
+  // 名字对不上还有个副作用：参考数据里明明有这个来源，条目却会被判成
+  // 「来源不认识」而永远不参与校验（见 js/level/refs.js）。
+  rtid: 'GridItemTypes',
   groups: [
     {
       title: '主线与回忆',

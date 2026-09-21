@@ -93,6 +93,36 @@ console.log('\n资源');
   const iState = srcs.findIndex(s => /editor\/state\.js$/.test(s));
   ok(iJsonPos >= 0 && iJsonPos < iState, '错误定位器在 state 之前加载',
     `jsonpos@${iJsonPos} state@${iState}`);
+
+  /* 外部参考文件（reference/*.js，7.6 MB）。
+   * refs.js 只负责读 window.ZLevel.RefData，**数据脚本放在它前面还是后面都行** ——
+   * 前提是 refs.js 惰性取值（加载时不建别名集合）。唯一硬约束是数据脚本必须
+   * 排在 boot() 之前，也就是在所有编辑器代码之前。
+   * 顺序错了两边都不报错、页面也不白屏，只是外部引用静默回到"不判"：
+   * 症状是"看起来正常但其实什么都没校验"，所以必须有断言盯着。 */
+  const iRefs = srcs.findIndex(s => /level\/refs\.js$/.test(s));
+  ok(iRefs >= 0 && iRefs < iOutline, 'refs.js 排在 outline 之前（outline 要用它）',
+    `refs@${iRefs} outline@${iOutline}`);
+  const refSrcs = srcs.map((s, i) => [s, i]).filter(([s]) => /^reference\/.*\.js$/.test(s));
+  const wantRef = ['GridItemTypes', 'LevelModules', 'PlantTypes', 'PropertySheets', 'ZombieActions', 'ZombieTypes'];
+  const refNames = refSrcs.map(([s]) => s.replace(/^reference\//, '').replace(/\.js$/, '')).sort();
+  ok(refNames.join(',') === wantRef.join(','), `${wantRef.length} 个参考数据脚本都引了`,
+    refNames.join(',') || '(一个都没有)');
+  /* 判**每一个**都在 main.js 之前，不是判第一个。
+   * （变异测试抓到的第一版就是这么写的：只看 Math.min，把 LevelModules 挪到
+   * main.js 后面照样全绿 —— 剩下 5 个把它兜住了。） */
+  const iBoot = srcs.findIndex(s => /editor\/main\.js$/.test(s));
+  const lateRef = refSrcs.filter(([, i]) => i > iBoot).map(([s]) => s);
+  ok(refSrcs.length > 0 && lateRef.length === 0,
+    '参考数据全部排在 main.js（boot 所在）之前加载',
+    lateRef.length ? lateRef.join(',') : `共 ${refSrcs.length} 个，main@${iBoot}`);
+  // 7.6 MB 是同步脚本，会拖首屏。这条不是为了压体积，是为了让"又塞了一个大文件"
+  // 这件事在自检里看得见，而不是等用户抱怨变慢。
+  const refBytes = refSrcs.reduce((n, [s]) => {
+    try { return n + fs.statSync(path.join(ROOT, s)).size; } catch (e) { return n; }
+  }, 0);
+  ok(refBytes > 0 && refBytes < 12 * 1024 * 1024, '参考数据总体积在预期范围内（约 7.6 MB）',
+    (refBytes / 1024 / 1024).toFixed(1) + ' MB');
 }
 
 // ── 3. DOM id 对得上 ──────────────────────────────────────────────────
@@ -397,7 +427,18 @@ console.log('\n按 HTML 顺序加载');
   // 监视名单：真正会被 main.js 抓成局部变量的那些模块。命名空间自己
   // （ZLevel / ZEditor）不在名单里 —— 每个文件开头的 `window.ZEditor = window.ZEditor || {}`
   // 就是故意读 undefined 的自举写法，算进去会满屏误报。
-  const WATCHED = ['Rtid', 'Order', 'Parse', 'Conflicts', 'Edit', 'Outline',
+  /* Refs 在名单里：它是个模块，加载期不该被谁抓成局部量。
+   *
+   * RefData **故意不在**名单里。它是数据容器不是模块，而每个 reference/*.js 开头
+   * 都写 `window.ZLevel.RefData = window.ZLevel.RefData || {}` —— 那是一次
+   * **合法的** undefined 读，跟 ZLevel / ZEditor 自己的自举写法同一个道理
+   * （上面那段注释已经解释过为什么命名空间本身不算）。放进来会必然误报。
+   *
+   * 「refs.js 有没有在加载期就把 RefData 抓成局部量」这个真问题由**功能断言**兜：
+   * 加载完之后查一个真实别名（LevelModules 里的 StandardIntro）。加载期抓的话
+   * 抓到的是 undefined，后面永远查不到东西，那条断言必红。
+   * 变异测试验过：给 refs.js 加 `var RefData = window.ZLevel.RefData;` 确实会红。 */
+  const WATCHED = ['Rtid', 'Order', 'Parse', 'Conflicts', 'Edit', 'Outline', 'Refs',
     'State', 'Text', 'Tree', 'Panels', 'Templates', 'Skeletons', 'Modules'];
 
   let loading = '';                        // 当前正在加载哪个脚本
@@ -446,6 +487,11 @@ console.log('\n按 HTML 顺序加载');
     ['window.ZLevel.Parse', win2.ZLevel && win2.ZLevel.Parse],
     ['window.ZLevel.Outline', win2.ZLevel && win2.ZLevel.Outline],
     ['window.ZLevel.Conflicts', win2.ZLevel && win2.ZLevel.Conflicts],
+    ['window.ZLevel.Refs', win2.ZLevel && win2.ZLevel.Refs],
+    /* RefData 是数据不是模块，存在性单独断言。它**不是**可选的装饰：
+     * 少了它外部引用会静默回到"不判"，页面一切正常、只是什么都不校验。
+     * 所以这里不光看它在不在，还核一个真实的别名。 */
+    ['window.ZLevel.RefData', win2.ZLevel && win2.ZLevel.RefData],
     ['window.ZLevel.Templates', win2.ZLevel && win2.ZLevel.Templates],
     ['window.ZLevel.Skeletons', win2.ZLevel && win2.ZLevel.Skeletons],
     ['window.ZLevel.Modules', win2.ZLevel && win2.ZLevel.Modules],
@@ -459,11 +505,24 @@ console.log('\n按 HTML 顺序加载');
   const gone = NS.filter(([, v]) => !v).map(([k]) => k);
   ok(gone.length === 0, `加载后 ${NS.length} 个命名空间都在`, gone.join(', '));
 
+  // 参考数据在不在、活着没有。只断言"对象存在"不够 —— 空对象也能过，
+  // 而空对象的表现恰好跟"没加载"一模一样（外部引用一律不判）。
+  {
+    const R = win2.ZLevel && win2.ZLevel.Refs;
+    const d = win2.ZLevel && win2.ZLevel.RefData;
+    const names = d ? Object.keys(d).sort() : [];
+    ok(names.length === 6, '6 个参考来源的数据都加载了', names.join(',') || '(空)');
+    ok(!!(R && R.aliases('LevelModules') && R.aliases('LevelModules').has('StandardIntro')),
+      '参考数据真的能用（LevelModules 里查得到 StandardIntro）');
+  }
+
   // main.js 顶层就把这几个抓成了局部变量（见它开头那几行）。顺序错了这里就是
   // undefined，而且要到用户点按钮时才炸 —— 所以正面钉一下类型。
   const TYPES = [
     ['ZLevel.Edit.insertModule', win2.ZLevel && win2.ZLevel.Edit && typeof win2.ZLevel.Edit.insertModule],
     ['ZLevel.Outline.build', win2.ZLevel && win2.ZLevel.Outline && typeof win2.ZLevel.Outline.build],
+    ['ZLevel.Refs.aliases', win2.ZLevel && win2.ZLevel.Refs && typeof win2.ZLevel.Refs.aliases],
+    ['ZLevel.Parse.classifyRef', win2.ZLevel && win2.ZLevel.Parse && typeof win2.ZLevel.Parse.classifyRef],
     ['ZEditor.Text.create', win2.ZEditor && win2.ZEditor.Text && typeof win2.ZEditor.Text.create],
     ['ZEditor.Text.diagnosticOf', win2.ZEditor && win2.ZEditor.Text && typeof win2.ZEditor.Text.diagnosticOf],
     ['ZEditor.State.create', win2.ZEditor && win2.ZEditor.State && typeof win2.ZEditor.State.create],

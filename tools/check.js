@@ -35,7 +35,7 @@ console.log(`数据文件 ${files.length} 个\n`);
 // CurrentLevel 是关卡文件里自定义的僵尸用的表（僵尸章「可自定义僵尸」那一组），
 // 走的是条目级 rtid 覆盖，不是章节级的。
 // LevelModules 是地图章（XxxStage 那一批场景代码）的表。
-const RTID_TABLES = ['PlantTypes', 'ZombieTypes', 'GriditemTypes', 'CurrentLevel', 'LevelModules'];
+const RTID_TABLES = ['PlantTypes', 'ZombieTypes', 'GridItemTypes', 'CurrentLevel', 'LevelModules'];
 
 console.log('结构');
 let totalItems = 0, totalGroups = 0;

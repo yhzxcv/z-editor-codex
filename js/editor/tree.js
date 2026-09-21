@@ -34,11 +34,21 @@ window.ZEditor.Tree = (function () {
     go.title = node.objclass + (node.alias ? '  ·  ' + node.alias : '') + '\n点击跳到文本里的位置';
     go.appendChild(el('span', 'node-cls', node.objclass));
     if (node.alias) go.appendChild(el('span', 'node-alias', node.alias));
-    // 引用了本文件里找不到的东西 -> 标黄，这是最常见的手改错误
+    /* 引用了**本文件里**找不到的别名 -> 标黄。这是最常见的手改错误。
+     * 注意这里只说本文件：指向 @LevelModules / @ZombieTypes 这些外部文件的引用
+     * 不在本文件里本来就不算错，它们由下面的灰点表示。 */
     if (node.dangling && node.dangling.length) {
       var w = el('span', 'node-warn', '⚠');
-      w.title = '引用了找不到的别名：' + node.dangling.join('、');
+      w.title = '引用了本文件里找不到的别名：' + node.dangling.join('、');
       go.appendChild(w);
+    }
+    /* 外部来源里没有这个别名 -> 灰点。可能拼错，也可能是我们的参考数据比游戏旧，
+     * 从这份文件分不出是哪种，所以只提示、不算错误（见 js/level/outline.js）。 */
+    if (node.notes && node.notes.length) {
+      var g = el('span', 'node-note', '·');
+      g.title = '指向的参考文件里没有这些别名（可能拼错了）：'
+        + node.notes.map(function (r) { return r.alias + '@' + r.source; }).join('、');
+      go.appendChild(g);
     }
     go.addEventListener('click', function () { onPick(node); });
     row.appendChild(go);
@@ -155,7 +165,7 @@ window.ZEditor.Tree = (function () {
         note: outline.orphans.length ? '没有任何对象引用它们，可以在「校验」页一键清理' : null
       }));
 
-    // 悬空引用
+    // 悬空引用 —— 指向本文件的引用解不开，是真问题
     if (outline.dangling.length) {
       var items = outline.dangling.map(function (d) {
         var e = el('div', 'node node-bad');
@@ -165,7 +175,23 @@ window.ZEditor.Tree = (function () {
         return e;
       });
       host.appendChild(section('dangling', '失效引用', outline.dangling.length, items,
-        { tone: 'warn', note: 'RTID 指向的对象在文件里不存在' }));
+        { tone: 'warn', note: '写的是 @CurrentLevel（或不写来源），但本文件里没有这个对象' }));
+    }
+
+    /* 外部来源里没有这个别名 —— 灰字，不是问题。
+     * 跟上面那段分开，是因为两者的确定性不一样：本文件里找不到就是找不到；
+     * 而外部文件我们只有一份快照，可能是拼错、也可能是快照比游戏旧。 */
+    if (outline.notes.length) {
+      var notes = outline.notes.map(function (n) {
+        var e = el('div', 'node node-dim');
+        e.appendChild(el('span', 'node-cls', n.alias));
+        e.appendChild(el('span', 'node-alias', n.source || ''));
+        if (n.where) e.appendChild(el('span', 'node-where', n.where));
+        e.addEventListener('click', function () { onPick({ alias: n.rtid, objclass: '', obj: null }); });
+        return e;
+      });
+      host.appendChild(section('notes', '参考文件里没有', outline.notes.length, notes,
+        { tone: 'dim', note: '可能拼错了，也可能参考数据比游戏旧；不算错误' }));
     }
   }
 

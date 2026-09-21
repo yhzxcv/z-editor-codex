@@ -11,12 +11,25 @@
  * 2. Kotlin 用 `List<PvzObject>` 且 Gson 会把多余逗号解析成 null 元素；
  *    JS 的 JSON.parse 直接抛错，所以 sanitize 系列在 Web 端更像一道
  *    "外部文件可能不干净" 的保险，而不是日常路径。
+ *
+ * ── 一处刻意偏离上游：可达性认来源 ──
+ * LevelParser.computeReachableObjects 用 `substringBefore("@")` 取别名，
+ * **把来源丢掉了**。后果是 `RTID(x@ZombieTypes)` 会给本文件里叫 x 的对象
+ * 造一条假边：真孤儿被算成"有人引用"，于是「清理」永远清不掉它。
+ * 这里只有**已知外部来源**（我们有参考数据的那几个）才不连边，其余一律照旧 ——
+ * 见 computeReachableObjects 里的注释。跟 README 记的那两个 Z-Editor bug 同性质：
+ * 按意图修掉，留注释，留断言。
  */
 window.ZLevel = window.ZLevel || {};
 window.ZLevel.Parse = (function () {
   'use strict';
 
   var Rtid = window.ZLevel.Rtid;
+
+  /** 参考数据表。**在调用时读**，不在加载时快照 —— 数据脚本排在本文件后面。 */
+  function refsTable(refs) {
+    return refs === undefined ? window.ZLevel.Refs : refs;
+  }
 
   /** 取 objclass；不是字符串时返回空串。 */
   function objClassOf(obj) {
@@ -105,6 +118,60 @@ window.ZLevel.Parse = (function () {
   }
 
   /**
+   * 本文件里出现过的**全部**别名（不限首别名）—— 与 Kotlin 侧 `flatMap{aliases}` 一致。
+   */
+  function allAliases(objects) {
+    var set = new Set();
+    asList(objects).forEach(function (o) {
+      var a = o && o.aliases;
+      if (Array.isArray(a)) a.forEach(function (x) { set.add(x); });
+    });
+    return set;
+  }
+
+  /**
+   * 一条 RTID 引用指向哪里、解不解得开。全站**唯一**的判据。
+   *
+   *   local             本文件里有这个别名
+   *   missing           本文件里没有它 —— 真失效，要报
+   *   external          外部来源里确实有这个别名
+   *   external-typo     外部来源有数据、但没有这个别名 —— 可能拼错了，灰字提示
+   *   external-unknown  那个来源我们没有数据 —— **不判**
+   *
+   * 判据收在一处，是因为原先有两条互相打架的判断路径：outline.nodeOf 把所有
+   * 解不开的别名一律当悬空（于是外部引用全部误报），而 outline.resolveList 又
+   * 写死豁免了字面量 'LevelModules'。同一个问题两个答案，还都不对。
+   *
+   * external-unknown 必须是「不判」而不是「报错」：上游资产里 @SkillTypes 2938 条、
+   * @ProjectileTypes 1694 条，我们一个都没有。硬判就是满屏误报。
+   *
+   * refs 可注入（自检要拿假的表检查"到底问过没有"，否则"没有误报"这条断言
+   * 在数据根本没加载时也照样绿）。不传就用全局的；全局那个也可能不存在，
+   * 那就等于什么数据都没有 —— 全走 external-unknown，也就是不判。
+   */
+  function classifyRef(alias, source, localAliases, refs) {
+    // 没有 `@` 的 RTID(别名) 按本文件内引用处理，移植 LevelParser 的容错
+    if (source == null || source === 'CurrentLevel') {
+      return (localAliases && localAliases.has(alias)) ? 'local' : 'missing';
+    }
+    var table = refsTable(refs);
+    if (!table || typeof table.has !== 'function' || !table.has(source)) return 'external-unknown';
+    var set = typeof table.aliases === 'function' ? table.aliases(source) : null;
+    if (set == null) return 'external-unknown';        // 有 has 却没有 aliases：当没数据
+    return set.has(alias) ? 'external' : 'external-typo';
+  }
+
+  /**
+   * 这条引用是不是指向**已知的**外部文件（我们有那个来源的数据）。
+   * 是的话它就不是本文件内部的边。
+   */
+  function isKnownExternal(ref, refs) {
+    if (!ref || ref.source == null || ref.source === 'CurrentLevel') return false;
+    var table = refsTable(refs);
+    return !!(table && typeof table.has === 'function' && table.has(ref.source));
+  }
+
+  /**
    * 从 LevelDefinition（根）出发，沿 objdata 里所有 RTID 引用做 BFS，返回可达对象集合。
    *
    * 用的是**引用同一性**（JS Set 对对象就是引用比较，等价于 Kotlin 的
@@ -112,8 +179,19 @@ window.ZLevel.Parse = (function () {
    * 避免误判。级联删除依赖这个性质 —— 删模块前后各算一次，差集才是真正失去引用的子对象。
    *
    * 没有 LevelDefinition（无根）时返回空集。
+   *
+   * ── 只连本文件的边 ──
+   * 指向**已知外部来源**的引用被跳过（上游用 substringBefore("@") 丢了来源，
+   * 会给本文件同名的对象造一条假边，把真孤儿藏起来，让「清理」漏掉它）。
+   * 注意这个改动是**收紧可达性**，而可达集合变小意味着孤儿变多 —— 而「清理」
+   * 是删对象的操作。所以边界画在"能证明它指向别处"上：
+   *   - 来源是 CurrentLevel / 没有 @   -> 本文件的边（照旧）
+   *   - 来源我们有数据                 -> 不是本文件的边（改动点）
+   *   - 来源我们没数据（@SkillTypes…）-> **照旧连边**，宁可留着也不误删
+   * 最后那条是 fail-open，跟上游 getLevelModuleAliases() 返回 null 时不判失效
+   * 是同一个态度：证明不了的东西不动手。
    */
-  function computeReachableObjects(objects) {
+  function computeReachableObjects(objects, refs) {
     var list = sanitizeObjectList(objects);
     var rootIndex = -1;
     for (var i = 0; i < list.length; i++) {
@@ -135,9 +213,10 @@ window.ZLevel.Parse = (function () {
     reachable.add(list[rootIndex]);
     while (queue.length) {
       var cur = list[queue.shift()];
-      var aliases = Rtid.collectAliases(cur && cur.objdata, []);
-      for (var n = 0; n < aliases.length; n++) {
-        var ti = aliasToIndex[aliases[n]];
+      var found = Rtid.collectRefs(cur && cur.objdata, []);
+      for (var n = 0; n < found.length; n++) {
+        if (isKnownExternal(found[n], refs)) continue;
+        var ti = aliasToIndex[found[n].alias];
         if (ti === undefined) continue;
         var target = list[ti];
         if (!reachable.has(target)) {
@@ -153,11 +232,11 @@ window.ZLevel.Parse = (function () {
    * 找出所有"孤立/未引用"的对象（失效模块）：可达集合的补集。
    * 文件里没有 LevelDefinition 时返回空（宁可不清，也不误删）。
    */
-  function findOrphanedObjects(objects) {
+  function findOrphanedObjects(objects, refs) {
     var list = sanitizeObjectList(objects);
     var hasRoot = list.some(function (o) { return objClassOf(o) === 'LevelDefinition'; });
     if (!hasRoot) return [];
-    var reachable = computeReachableObjects(list);
+    var reachable = computeReachableObjects(list, refs);
     return list.filter(function (o) { return !reachable.has(o); });
   }
 
@@ -177,7 +256,12 @@ window.ZLevel.Parse = (function () {
    * 保持 Modules 中的顺序，已去重。
    *
    * levelModuleAliases 传 null 时 `@LevelModules` 不参与判断（参考文件没加载，
-   * 参与就会满屏误报）。
+   * 参与就会满屏误报）。**这是上游的口径**，不要改成"没数据就当空集"。
+   * 真正的别名集合由 js/editor/main.js 的 levelModuleAliases() 提供，来自
+   * window.ZLevel.Refs.aliases('LevelModules')。
+   *
+   * 注意这里只查 `Modules` 一个字段，是照抄 Kotlin 的窄口径（LevelParser 只遍历
+   * Modules）；对象内部别处的引用由 outline.nodeOf 那条路径负责，两者不是一回事。
    */
   function findInvalidLevelModuleReferences(objects, levelModuleAliases) {
     var list = sanitizeObjectList(objects);
@@ -185,11 +269,7 @@ window.ZLevel.Parse = (function () {
     if (!modules.length) return [];
 
     // 文件内所有别名（不限首别名）—— 与 Kotlin 侧 flatMap{aliases} 一致
-    var fileAliases = new Set();
-    list.forEach(function (o) {
-      var a = o && o.aliases;
-      if (Array.isArray(a)) a.forEach(function (x) { fileAliases.add(x); });
-    });
+    var fileAliases = allAliases(list);
 
     var out = [];
     var seen = new Set();
@@ -275,6 +355,9 @@ window.ZLevel.Parse = (function () {
     findByClass: findByClass,
     findLevelDefinition: findLevelDefinition,
     buildObjectMap: buildObjectMap,
+    allAliases: allAliases,
+    classifyRef: classifyRef,
+    isKnownExternal: isKnownExternal,
     computeReachableObjects: computeReachableObjects,
     findOrphanedObjects: findOrphanedObjects,
     levelModules: levelModules,

@@ -23,8 +23,26 @@
   /** 程序性换文本时挂起 onChange，免得 setText -> onChange -> setText 来回打转。 */
   var muted = false;
 
-  /** 校验层要用的「参考文件里的模块别名」。没加载参考文件时为 null（不参与判断）。 */
-  function levelModuleAliases() { return null; }
+  /**
+   * 参考数据表（reference/*.js 挂上来的）。脚本没加载时给 null ——
+   * 上层一律降级成「外部来源不判」，也就是回到不给外部引用报错的状态。
+   */
+  function refsTable() { return window.ZLevel.Refs || null; }
+
+  /**
+   * 校验层要用的「参考文件里的模块别名」。
+   *
+   * 参考文件没加载时返回 null：Parse.findInvalidLevelModuleReferences 拿到 null
+   * 就跳过 `@LevelModules` 那一支，这是上游的口径（宁可漏判，也不要满屏误报）。
+   * **不能返回空 Set** —— 空 Set 的含义是「LevelModules 里一个别名都没有」，
+   * 那会把每一条模块引用都判成失效，正好是这个改动要修掉的那种误报。
+   *
+   * 改这里之前它是个 `return null` 的桩，于是真正的拼写错误一个也查不出来。
+   */
+  function levelModuleAliases() {
+    var Refs = window.ZLevel.Refs;
+    return Refs ? Refs.aliases('LevelModules') : null;
+  }
 
   // ── 启动 ────────────────────────────────────────────────────────────
 
@@ -70,7 +88,7 @@
     renderCheckPanel(s);
     renderInsertPanel(s);
 
-    Tree.render(BY_ID('panel-tree'), Outline.build(s.objects), onPickNode, doDeleteObject);
+    Tree.render(BY_ID('panel-tree'), Outline.build(s.objects, refsTable()), onPickNode, doDeleteObject);
   }
 
   /**
@@ -155,6 +173,7 @@
     Panels.renderCheck(BY_ID('panel-check'), {
       state: function () { return s; },
       levelModuleAliases: levelModuleAliases,
+      refs: refsTable,
       reveal: revealOrWarn,
       onCleanup: doCleanup,
       onDelete: doDeleteObject
@@ -332,7 +351,8 @@
     var n = Parse.findOrphanedObjects(s.objects).length;
     if (!n) { toast('没有需要清理的对象'); return; }
     if (!window.confirm('要删掉这 ' + n + ' 个没有任何对象引用的对象吗？\n\n' +
-      '它们从 LevelDefinition 出发走不到，删掉不影响关卡。\n用「撤销结构操作」可以找回来。')) return;
+      '它们从 LevelDefinition 出发走不到（指向外部参考文件的引用不算本文件的引用），' +
+      '删掉不影响关卡。\n用「撤销结构操作」可以找回来。')) return;
 
     var r = state.applyStructural(function (objects) {
       return { ok: true, removed: Edit.cleanupOrphaned(objects).length };

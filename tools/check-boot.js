@@ -311,6 +311,74 @@ const objsBefore = objCount();
   ok(!doc.querySelector('.cm-lintRange'), '修好之后波浪线消失');
 }
 
+/* 5d-3. 外部参考引用：满屏「找不到引用」那个 bug 的回归测试。
+ *
+ * 这一节是**唯一**能抓到 main.js 里那个接线断掉的地方：
+ *   check-level.js 直接调 Outline.build(objs, Refs)，绕过了界面；
+ *   check-editor.js 只看命名空间在不在，不看有没有接上。
+ * 只有整页跑起来、真的开一份模板，才看得见「所有 @LevelModules 都被标成
+ * 找不到引用」——那是用户报的原话。
+ *
+ * 反过来说，这一节红了**也可能**是接线断了（main.js 里 refsTable() 返回 null）。
+ * 那种情况下表现是"页面一切正常、只是外部引用又全变悬空"，属于静默失效，
+ * 所以「0 个 ⚠」这条必须配上后面「注入一个真错必须报」那条一起看：
+ * 只有后者证明判据是活的，前者的 0 才有意义。 */
+{
+  /* 本段只借用一下"有内容的文档"，用完必须把文档还原成进来时的样子。
+   * 不还原的话后面 5e 会拿到「坚不可摧」而不是它预期的空白关卡 ——
+   * 那份模板里第一个模块已经存在，插入按钮会拒绝，于是
+   * 「切主题之后结构操作仍然有用」凭空变红。（第一版就是这么挂的。） */
+  const docIn = cmText();
+  click(doc.getElementById('btn-templates'), '模板');
+  const it = [...doc.querySelectorAll('#tpl-pop button')].find(x => /坚不可摧/.test(x.textContent));
+  ok(!!it, '找到「坚不可摧示例」（这份模板里 @LevelModules / @ZombieTypes 引用最多）');
+  if (it) click(it, '选坚不可摧');
+
+  const tree = doc.getElementById('panel-tree');
+  const warns = [...tree.querySelectorAll('.node-warn')];
+  ok(warns.length === 0, '对象树里 0 个 ⚠（外部引用不再被误报成悬空）',
+    warns.map(w => w.title).join(' | ') || '无');
+  const notes = [...tree.querySelectorAll('.node-note')];
+  ok(notes.length === 0, '对象树里 0 个灰点（参考数据里查得到这些别名）',
+    notes.map(w => w.title).join(' | ') || '无');
+  ok(!doc.querySelector('#panel-tree .sec-warn .sec-title') ||
+     !/失效引用/.test(tree.textContent), '对象树里没有「失效引用」那一段');
+
+  const st = doc.getElementById('statusbar').textContent;
+  ok(!/个失效引用/.test(st), '状态栏没说有失效引用', JSON.stringify(st.slice(0, 80)));
+
+  // 反过来：判据得是活的。注入一个 @LevelModules 的假别名，必须冒出来 ——
+  // 不然上面那几个 0 也可能只是"什么都没在判"（fail-open 的静默降级）。
+  {
+    const v = view();
+    const before = cmText();
+    const after = before.replace(/RTID\(([A-Za-z0-9_]+)@LevelModules\)/,
+      'RTID(__definitely_not_a_real_module__@LevelModules)');
+    ok(after !== before, '改写出一处 @LevelModules 的假别名');
+    v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: after } });
+    const t2 = doc.getElementById('panel-tree');
+    const n2 = [...t2.querySelectorAll('.node-note')];
+    ok(n2.length > 0, '假的 @LevelModules 别名进了灰色提示（判据是活的）',
+      n2.map(w => w.title).join(' | ') || '一个都没有');
+    // 而且必须是"灰"不是"红"：来源我们有数据、只是别名不在里面，属于可能拼错，
+    // 上游 ReferenceRepository 的口径也是不算错误
+    ok([...t2.querySelectorAll('.node-warn')].length === 0,
+      '它没有被算成错误（@LevelModules 是外部来源，不算本文件的悬空引用）');
+    ok(!/个失效引用/.test(doc.getElementById('statusbar').textContent),
+      '状态栏也没把它算成失效引用');
+
+    // 收尾：还原假别名
+    const v2 = view();
+    v2.dispatch({ changes: { from: 0, to: v2.state.doc.length, insert: before } });
+    ok(cmText() === before, '假别名已撤回');
+  }
+
+  // 还原成本段进来之前的那份文档（见开头 docIn 的注释：不还原会连累 5e）
+  const v3 = view();
+  v3.dispatch({ changes: { from: 0, to: v3.state.doc.length, insert: docIn } });
+  ok(cmText() === docIn, '本段借用的文档已还原（不把状态漏给后面的用例）');
+}
+
 // 5e. 主题切换。风险点是 setText 会重建 state 而 Compartment 实例要复用，
 //     所以切完主题必须再做一次结构操作，确认两边都没坏。
 {

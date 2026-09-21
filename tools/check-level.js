@@ -14,6 +14,7 @@ global.window = global;
 
 const ROOT = path.join(__dirname, '..');
 require(path.join(ROOT, 'js/level/rtid.js'));
+require(path.join(ROOT, 'js/level/refs.js'));
 require(path.join(ROOT, 'js/level/order.js'));
 require(path.join(ROOT, 'js/level/parse.js'));
 require(path.join(ROOT, 'js/level/conflicts.js'));
@@ -23,7 +24,13 @@ require(path.join(ROOT, 'data/modules.js'));
 require(path.join(ROOT, 'data/module-skeletons.js'));
 require(path.join(ROOT, 'data/templates.js'));
 
-const { Rtid, Order, Parse, Conflicts, Edit, Outline, Modules, Templates } = global.ZLevel;
+/* 上游参考文件（7.6 MB）。**这行不能省** —— 少加载一个来源，下面的断言不但不会红，
+ * 反而会更绿：Refs 没有数据时外部引用一律不判（fail-open），误报数照样是 0。
+ * 所以「9 份模板 0 误报」这条必须有非空性守卫，见「外部参考文件」一节。 */
+const REF_SOURCES = ['GridItemTypes', 'LevelModules', 'PlantTypes', 'PropertySheets', 'ZombieActions', 'ZombieTypes'];
+REF_SOURCES.forEach(s => require(path.join(ROOT, 'reference', s + '.js')));
+
+const { Rtid, Order, Parse, Conflicts, Edit, Outline, Modules, Templates, Refs } = global.ZLevel;
 
 // ── 模板从哪来 ────────────────────────────────────────────────────────
 //
@@ -565,6 +572,326 @@ console.log('\n写入键名的契约闸');
   const ground = S.SpawnZombiesFromGroundSpawnerProps;
   ok(ground && 'ColumnStart' in ground && 'ColumnEnd' in ground,
     '地底出怪骨架带列范围（修过 Z-Editor 的工厂错配）', JSON.stringify(ground));
+}
+
+// ── 外部参考文件 ──────────────────────────────────────────────────────
+/* 关卡的 RTID 有两种来源，性质完全不同：
+ *   @CurrentLevel —— 对象就在本文件里，解不开是真错；
+ *   @LevelModules / @ZombieTypes … —— 按定义就在**别的文件**里，本文件找不到是正常的。
+ * 网页版原先只认本文件，于是把外部引用全判成「找不到引用」（9 份模板 153 条去重引用里
+ * 71 条是误报）。搬进上游 reference/*.json 之后才分得清这两类。
+ *
+ * 这一节真正要钉住的**不是"误报变成 0"** —— 那条断言是假的：
+ * 参考数据没加载时外部来源一律不判（fail-open），误报同样是 0，
+ * 「数据是活的」和「数据压根没进来」输出完全一样。所以下面有一条非空性守卫。
+ */
+console.log('\n外部参考文件');
+{
+  const want = REF_SOURCES.slice().sort();
+  ok(Refs.knownSources().join(',') === want.join(','), '6 个参考来源都加载了',
+    Refs.knownSources().join(',') || '(空)');
+
+  /* 别名数逐个钉住。数字变了只有两种可能：上游更新了（重跑 gen-refs.mjs 并同步这里），
+   * 或者取值口径坏了 —— 比如没跳过取不到首别名的条目。GridItemTypes 里有 48 条取不到
+   * （11 条把 aliases 拼成 alises、37 条本身没有别名），直接 o.aliases[0] 会在这 48 条上
+   * 得到 undefined，混进集合就会多出 1 个元素（Set 去重后是同一个 undefined）。 */
+  const WANT_COUNTS = {
+    GridItemTypes: 460, LevelModules: 356, PlantTypes: 383,
+    PropertySheets: 1922, ZombieActions: 536, ZombieTypes: 1029
+  };
+  const badCount = Object.keys(WANT_COUNTS)
+    .filter(s => Refs.aliases(s).size !== WANT_COUNTS[s])
+    .map(s => `${s} ${Refs.aliases(s).size}≠${WANT_COUNTS[s]}`);
+  ok(badCount.length === 0, '各来源别名数与生成时一致（口径：只看首别名、跳过缺失的）',
+    badCount.join('；') || Object.keys(WANT_COUNTS).length + ' 个来源');
+
+  const junk = [];
+  REF_SOURCES.forEach(s => Refs.aliases(s).forEach(a => {
+    if (typeof a !== 'string' || !a) junk.push(s + ': ' + String(a));
+  }));
+  ok(junk.length === 0, '别名集合里没有空值（无别名条目确实被跳过了）', junk.slice(0, 3).join('; '));
+
+  // 抽样。个数对得上不代表内容对得上，挑几个模板里真引用到的别名核一下。
+  const spots = [
+    ['LevelModules', 'StandardIntro'], ['ZombieTypes', 'tutorial'],
+    ['GridItemTypes', 'rocket_landing'], ['PlantTypes', 'sunflower'],
+    ['PropertySheets', 'DefaultGameProps'], ['ZombieActions', 'ZombieGeneralIdle']
+  ];
+  const noSpot = spots.filter(p => !Refs.aliases(p[0]).has(p[1]));
+  ok(noSpot.length === 0, '抽样别名都取得到',
+    noSpot.map(p => p.join('@')).join(',') || spots.map(p => p[1]).join(','));
+}
+{
+  /* 分类判据。全站唯一的判据就是这个函数 —— 对象树的 ⚠/灰点、校验面板、可达性
+   * 三处都走它，所以口径写错一处会同时错三处，值得单独钉死。 */
+  const local = new Set(['SeedBank']);
+  const C = (alias, source) => Parse.classifyRef(alias, source, local, Refs);
+  ok(C('SeedBank', 'CurrentLevel') === 'local', '@CurrentLevel 且本文件有 -> 正常');
+  ok(C('SeedBank', null) === 'local', '不写来源按 CurrentLevel 算 -> 正常');
+  ok(C('Ghost', 'CurrentLevel') === 'missing', '@CurrentLevel 且本文件没有 -> 真失效');
+  ok(C('Ghost', null) === 'missing', '不写来源且本文件没有 -> 真失效');
+  ok(C('StandardIntro', 'LevelModules') === 'external', '外部来源里有这个别名 -> 正常');
+  ok(C('StandardIntroTypo', 'LevelModules') === 'external-typo',
+    '外部来源里没有 -> 只提示不算错（上游 ReferenceRepository 也是这个口径）');
+  // 这个来源上游就没有对应的参考文件，而 data/module-skeletons.js 真在发它
+  // （「阳光上限」那批核心模块），所以"没数据"必须是合法状态而不是错误
+  ok(C('LevelModuleDifficultyMaxSun', 'LevelModulesDifficulty') === 'external-unknown',
+    '我们没有数据的来源 -> 一律不判');
+  ok(Refs.has('LevelModulesDifficulty') === false, '前提：LevelModulesDifficulty 确实没有参考文件');
+  ok(Refs.aliases('LevelModulesDifficulty') === null, '没数据时 aliases 返回 null（不是空 Set）');
+}
+{
+  /* 9 份模板：去重后 153 条引用 = 82 条本文件 + 71 条外部。
+   * **71 这个数字就是非空性守卫**：数据没加载时 external 是 0、external-unknown 是 71，
+   * 而"悬空 0 条、灰点 0 条"在两种情况下都成立。只断言 0 抓不住假绿，
+   * 必须同时断言那 71 条**确实被判成了 external**（也就是确实查了数据、也确实查到了）。 */
+  const tally = { local: 0, missing: 0, external: 0, 'external-typo': 0, 'external-unknown': 0 };
+  const unknownSources = new Set();
+  let dangling = 0, notes = 0, nodeDangling = 0, nodeNotes = 0, nodeCount = 0, objTotal = 0, consulted = 0;
+
+  /* 树上的 ⚠ 和灰点走的是**节点级**的 dangling/notes，跟 outline 顶层的
+   * dangling/notes 不是同一条路径：顶层那两个只由 Modules/Waves 的列表解析
+   * （resolveList）产出，而节点级由 nodeOf 逐个对象产出。
+   * 只断言顶层就等于完全放过了 nodeOf —— 变异测试验过：把 nodeOf 改回
+   * 「所有查不到的别名都算 dangling」，顶层数字一点不变、整套照样全绿。
+   * 而用户看到的那一排 ⚠ 恰恰来自节点级。所以两边都要断言。 */
+  const nodesOf = o => {
+    const out = [];
+    const push = n => { if (n) out.push(n); };
+    push(o.root); push(o.waveManager);
+    o.modules.forEach(push); o.supporting.forEach(push); o.orphans.forEach(push);
+    o.waves.forEach(w => w.items.forEach(push));
+    return out;
+  };
+  // 记账替身：万一将来 outline 不再把 refs 传下去（比如参数漏了），
+  // 分类就会全部走 external-unknown 而上面那些断言照样是 0 —— 这里记一笔就现形了。
+  const counting = {
+    has: function (s) { consulted++; return Refs.has(s); },
+    aliases: function (s) { consulted++; return Refs.aliases(s); }
+  };
+  for (const f of files) {
+    const objs = readTemplate(f).objects;
+    const local = Parse.allAliases(objs);
+    const seen = new Set();
+    objs.forEach(o => Rtid.collectRefs(o && o.objdata, []).forEach(r => {
+      if (seen.has(r.full)) return;
+      seen.add(r.full);
+      const c = Parse.classifyRef(r.alias, r.source, local, Refs);
+      tally[c]++;
+      if (c === 'external-unknown') unknownSources.add(r.source);
+    }));
+    const o = Outline.build(objs, counting);
+    dangling += o.dangling.length;
+    notes += o.notes.length;
+    const ns = nodesOf(o);
+    nodeCount += ns.length;
+    ns.forEach(n => { nodeDangling += n.dangling.length; nodeNotes += n.notes.length; });
+    objTotal += o.total;
+  }
+  ok(tally.missing === 0, '9 份模板的 @CurrentLevel 引用全部解得开', String(tally.missing));
+  ok(tally['external-typo'] === 0, '9 份模板没有"外部来源里查不到"的别名',
+    String(tally['external-typo']));
+  ok(tally['external-unknown'] === 0, '9 份模板没用到我们没有数据的来源',
+    [...unknownSources].join(',') || '无');
+  ok(tally.external === 71, '71 条外部引用被参考数据真正解析了（假绿防线，不是"没判"）',
+    String(tally.external));
+  ok(tally.local === 82, '82 条本文件引用', String(tally.local));
+  ok(tally.local + tally.external === 153, '两类加总等于去重引用总数（旧口径下 71 条是误报）',
+    `${tally.local}+${tally.external}=153`);
+  ok(dangling === 0 && notes === 0, '大纲顶层 0 条悬空、0 条灰点', `悬空 ${dangling} / 灰点 ${notes}`);
+  ok(nodeDangling === 0 && nodeNotes === 0,
+    '对象树的节点上 0 个 ⚠、0 个灰点（用户真正看到的那一排）',
+    `⚠ ${nodeDangling} / 灰点 ${nodeNotes}`);
+  ok(nodeCount >= objTotal, '节点数不少于对象数（上面那些 0 不是"没节点可标"）',
+    `${nodeCount} 个节点 / ${objTotal} 个对象`);
+  ok(consulted > 0, '大纲确实把引用拿去查了参考数据（记账替身被调用）', `${consulted} 次`);
+}
+{
+  /* 可达性 —— 「清理」判孤儿/失效模块的依据。这里有一处**对上游的刻意偏离**：
+   * 上游 LevelParser.kt 用 substringBefore("@") 丢掉来源，于是 RTID(x@ZombieTypes)
+   * 会给本文件里同名的 x 造一条假边，把真孤儿藏起来、让「清理」漏掉它。
+   * 偏离只走到"能证明这个别名属于别的文件"为止：来源我们没有数据时不猜。
+   * 因为清理是**破坏性操作**，宁可漏报孤儿，不可误删对象。 */
+  const mk = ref => ([
+    { objclass: 'LevelDefinition', aliases: ['Def'], objdata: { Modules: [ref] } },
+    // 本文件里真有个叫 tutorial 的对象，ZombieTypes 里也有个 tutorial —— 同名不同物。
+    // 这正是上游那个 bug 的场景：外部引用把本文件里同名的对象拉成了"可达"。
+    { objclass: 'ZombieType', aliases: ['tutorial'], objdata: {} }
+  ]);
+  const orphans = ref => Parse.findOrphanedObjects(mk(ref), Refs).length;
+  ok(Refs.aliases('ZombieTypes').has('tutorial'), '前提：ZombieTypes 里真有 tutorial');
+  ok(orphans('RTID(tutorial@ZombieTypes)') === 1,
+    '指向已加载外部来源的引用不算本文件的边（本地同名对象仍是孤儿）');
+  ok(orphans('RTID(tutorial@CurrentLevel)') === 0, '@CurrentLevel 的引用算边');
+  ok(orphans('RTID(tutorial)') === 0, '不写来源的引用按 CurrentLevel 算边（上游有意容忍）');
+  ok(orphans('RTID(tutorial@NoSuchSourceEver)') === 0,
+    '来源我们没有数据时不猜（fail-open）—— 宁可漏报孤儿，不可误删对象');
+
+  /* 只是"算出来是孤儿"还不够 —— 用户看见的那棵树和「清理」真删掉的东西
+   * 必须对得上。这两条路径传 refs 的方式不一样：树那边是显式的
+   * Outline.build(objs, refsTable())，而「清理」走 Edit.cleanupOrphaned ->
+   * Parse.findOrphanedObjects(objects)（**省略** refs，靠 parse.js 里那个全局回退）。
+   * 两边现在同一个来源所以一致，但这个一致性是隐式的 —— 谁改了回退或改了传参，
+   * 结果就是"树说这 3 个能删、真删掉的是另外 3 个"，而那是**破坏性操作**。 */
+  const collision = mk('RTID(tutorial@ZombieTypes)');
+  const shown = Outline.build(collision, Refs).orphans.length;
+  const removed = Edit.cleanupOrphaned(collision.slice()).length;
+  ok(shown === 1 && removed === 1,
+    '树上标出的孤儿数 = 「清理」真删掉的数（这次是那条冲突引用造成的孤儿）',
+    `树 ${shown} / 清理 ${removed}`);
+
+  // 9 份真模板上四种算法（隐式 refs / 显式 refs / 树 / 真清理）也必须一致
+  const mism = [];
+  for (const f of files) {
+    const objs = readTemplate(f).objects;
+    const implicit = Parse.findOrphanedObjects(objs).length;         // 省略 refs，走全局回退
+    const explicit = Parse.findOrphanedObjects(objs, Refs).length;
+    const tree = Outline.build(objs, Refs).orphans.length;
+    const wiped = Edit.cleanupOrphaned(readTemplate(f).objects).length;
+    if (!(implicit === explicit && explicit === tree && tree === wiped)) {
+      mism.push(`${f} ${implicit}/${explicit}/${tree}/${wiped}`);
+    }
+  }
+  ok(mism.length === 0, '9 份模板上「隐式 refs / 显式 refs / 对象树 / 真清理」四种算法一致',
+    mism.join('; ') || '全部一致');
+}
+{
+  /* build 的第二个参数有三种传法，语义**不一样**，而且区别不容易看出来：
+   * 「省略」会去取全局表（parse.js 的 refsTable），只有「明确传 null」才是降级。
+   * 这条区别原先在注释里写反过（写成"省略或传 null 都不判"），所以各钉一条。
+   * 用"注入一个假外部别名"当探针：判得出就有灰点，不判就没有。 */
+  const probe = () => {
+    const d = readTemplate('2.自选卡示例.json');
+    d.objects[0].objdata.Modules.push('RTID(__nope__@LevelModules)');
+    return d.objects;
+  };
+  ok(Outline.build(probe(), Refs).notes.length === 1, '传表 -> 按它判（假别名进灰点）');
+  ok(Outline.build(probe()).notes.length === 1,
+    '省略 -> 取全局表，不是降级（假别名照样进灰点）');
+  ok(Outline.build(probe(), null).notes.length === 0,
+    '明确传 null -> 一律不判（不降级就不是降级）');
+  ok(Outline.build(probe(), null).dangling.length === 0,
+    '明确传 null 时误报仍然是 0');
+}
+
+{
+  /* 降级：参考数据没进来（脚本没加载、或将来某个环境里挂了）时，
+   * 外部来源一律不判 —— 误报必须仍然是 0，而不是满屏红。
+   * 同时本文件内的真失效必须照报，降级不能把真错误一起吞掉。 */
+  const saved = window.ZLevel.RefData;
+  try {
+    delete window.ZLevel.RefData;
+    ok(Refs.has('LevelModules') === false, '数据没了：has 返回 false');
+    ok(Refs.knownSources().length === 0, '数据没了：knownSources 为空');
+    /* 别名集合此刻**仍然拿得到**（前面几节已经建好并缓存了），跟 has() 不一致。
+     * 这是有意的、也是安全的：判分类的入口是 has()，缓存里的旧集合不会让
+     * 上面那条 external-unknown 失效。这里把不一致本身钉住，免得后人"顺手修好"
+     * 把缓存加进 has()，那才会真让 fail-open 失效。 */
+    ok(Refs.aliases('LevelModules') !== null,
+      '数据没了但别名集合还在缓存里（与 has 不一致，是有意的）');
+    ok(Parse.classifyRef('StandardIntro', 'LevelModules', new Set(), Refs) === 'external-unknown',
+      '数据没了：外部来源走「不判」');
+    ok(Parse.classifyRef('Ghost', 'CurrentLevel', new Set(), Refs) === 'missing',
+      '数据没了：@CurrentLevel 的失效照报（降级不吞真错误）');
+    let dangling = 0;
+    for (const f of files) dangling += Outline.build(readTemplate(f).objects, Refs).dangling.length;
+    ok(dangling === 0, '数据没了也不会把外部引用误报成悬空', String(dangling));
+  } finally {
+    window.ZLevel.RefData = saved;
+  }
+  // 「没数据」不是可缓存的结果，恢复后必须能重新取到 —— 缓存里存了空结果就再也回不来了
+  ok(Refs.aliases('LevelModules') !== null && Refs.aliases('LevelModules').has('StandardIntro'),
+    '恢复数据后别名集合又能取到（空结果没被写进缓存）');
+}
+{
+  /* 与上游逐字节对账。参考文件 7.6 MB 不进 fixtures（放一份仓库就翻倍），
+   * 所以这条只在有 Z-Editor 检出时跑；没有就**明说跳过**，不静默降级（README 的规矩）。 */
+  const refDir = process.env.Z_EDITOR_REF
+    ? path.join(process.env.Z_EDITOR_REF, 'app/src/main/assets/reference')
+    : 'E:/code/PVZ2LevelEditor/app/src/main/assets/reference';
+  if (!readJsonDir(refDir)) {
+    console.log('  --  没有 Z-Editor 检出，跳过参考文件字节对账');
+  } else {
+    const bad = [];
+    for (const s of REF_SOURCES) {
+      let up;
+      try { up = fs.readFileSync(path.join(refDir, s + '.json'), 'utf8'); } catch (e) { bad.push(s + '(上游缺)'); continue; }
+      if (!fs.readFileSync(path.join(ROOT, 'reference', s + '.js'), 'utf8').includes(up)) bad.push(s);
+    }
+    ok(bad.length === 0,
+      'reference/*.js 里嵌的原文与上游逐字节相同（上游更新后重跑 gen-refs.mjs）', bad.join(','));
+  }
+}
+{
+  /* 生成器的安全闸反向用例。内嵌裸字面量有几个经典炸点（</script 让 HTML 解析器
+   * 提前掐断脚本、CRLF、__proto__ 静默改语义……），assertEmbeddable 拦的就是它们。
+   * 但"拦得住"这件事光看它今天没报错证明不了 —— 要喂一个**真有毒**的输入，
+   * 确认它报错退出，而不是默默生成一个会白屏的文件。
+   *
+   * 用真实进程跑（不是把函数抠出来单测）：这样连"发现问题后到底退没退"也一起验了。 */
+  const { execFileSync } = require('child_process');
+  const os = require('os');
+  /* 输入和**输出**都指到临时目录。输出那个口子（Z_EDITOR_REF_OUT）是必须的：
+   * 生成器默认往仓库的 reference/ 里写，而下面那条"干净输入不误拦"的用例
+   * 会真的生成一个文件 —— 第一版没这个变量，跑一次自检就往仓库里丢了个
+   * reference/Clean.js，差一步提交进去。自检**不该有副作用**。 */
+  const genEnv = tmp => Object.assign({}, process.env, {
+    Z_EDITOR_REF: tmp,
+    Z_EDITOR_REF_OUT: path.join(tmp, 'out')
+  });
+  const POISON = [
+    ['含 </script', '{"objects":[{"aliases":["A"]}],"note":"</script>"}'],
+    ['含 CRLF', '{\r\n"objects":[{"aliases":["A"]}]\r\n}'],
+    ['含 __proto__ 键', '{"objects":[{"aliases":["A"]}],"__proto__":{"x":1}}'],
+    ['不是合法 JSON', '{"objects":['],
+    ['顶层没有 objects', '{"version":1}'],
+    ['开头有 BOM', '\ufeff{"objects":[{"aliases":["A"]}]}']
+  ];
+  const missed = [];
+  for (const [label, text] of POISON) {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'zref-'));
+    const src = path.join(tmp, 'app/src/main/assets/reference');
+    fs.mkdirSync(src, { recursive: true });
+    fs.writeFileSync(path.join(src, 'Poison.json'), text);
+    let status = 0, out = '';
+    try {
+      execFileSync(process.execPath, [path.join(ROOT, 'tools/gen-refs.mjs')],
+        { env: genEnv(tmp), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+      status = e.status;
+      out = (e.stderr || '') + (e.stdout || '');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+    // 退出码必须是 1 且确实报了 Poison 这个名字 —— 只判退出码的话，
+    // 生成器因为别的原因（比如路径写错）挂掉也会"通过"
+    if (status !== 1 || out.indexOf('Poison') < 0) missed.push(`${label}(退出 ${status})`);
+  }
+  ok(missed.length === 0, '生成器拦得住每一种不能安全内嵌的输入并报错退出',
+    missed.join('; ') || `${POISON.length} 种毒输入`);
+
+  // 反向的反向：干净的输入不能被误拦（否则上面那条"拦得住"可以用"见谁都拦"骗过去）
+  // 顺带验证产物真的落在 Z_EDITOR_REF_OUT 指的地方 —— 不然这个口子坏了，
+  // 自检又会开始往仓库里丢文件，而"退出码 0"照样绿。
+  const tmpOk = fs.mkdtempSync(path.join(os.tmpdir(), 'zref-'));
+  const srcOk = path.join(tmpOk, 'app/src/main/assets/reference');
+  fs.mkdirSync(srcOk, { recursive: true });
+  fs.writeFileSync(path.join(srcOk, 'Clean.json'),
+    '{"objects":[{"objclass":"A","aliases":["A"],"objdata":{}}]}');
+  let okStatus = 0;
+  try {
+    execFileSync(process.execPath, [path.join(ROOT, 'tools/gen-refs.mjs')],
+      { env: genEnv(tmpOk), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) { okStatus = e.status; } finally {
+    ok(okStatus === 0, '干净的输入不误拦（否则上面那条用"见谁都拦"也能通过）', `退出 ${okStatus}`);
+    okStatus = fs.existsSync(path.join(tmpOk, 'out', 'Clean.js')) ? 0 : 1;
+    // 仓库里不该多出东西 —— 自检有副作用的话，下一次 git status 就会看见它
+    ok(!fs.existsSync(path.join(ROOT, 'reference', 'Clean.js')) &&
+       !fs.existsSync(path.join(ROOT, 'reference', 'Poison.js')),
+      '自检没有往仓库的 reference/ 里写文件（生成器的输出口子生效）');
+    fs.rmSync(tmpOk, { recursive: true, force: true });
+  }
+  ok(okStatus === 0, '产物落在 Z_EDITOR_REF_OUT 指的地方', `退出 ${okStatus}`);
 }
 
 console.log(fail ? `\n${fail} 项未通过` : '\n全部通过');

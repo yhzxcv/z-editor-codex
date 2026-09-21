@@ -231,6 +231,7 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   line-height: 1.45;
 }
 .sec-warn > .sec-head { color: var(--warn); }
+.sec-dim > .sec-head { color: var(--faint); }
 
 .node {
   display: flex;
@@ -258,6 +259,11 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 }
 .node-alias { color: var(--dim); font-size: .88em; flex: 0 0 auto; }
 .node-warn { color: var(--warn); flex: 0 0 auto; }
+/* 外部引用里对不上的别名：比 ⚠ 弱一档，只是个提示。
+   用 --faint 而不是 --warn —— 它不该跟真失效抢注意力。 */
+.node-note { color: var(--faint); flex: 0 0 auto; }
+.node-where { color: var(--faint); font-size: .82em; flex: 0 1 auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 删除按钮：平时藏起来，悬停/键盘聚焦才出现 —— 免得误点 */
 .node-del {
@@ -272,6 +278,9 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 
 .node-bad .node-cls { color: var(--bad); }
 .node-bad { cursor: pointer; }
+.node-dim .node-cls { color: var(--dim); }
+.node-dim .node-alias { color: var(--faint); }
+.node-dim { cursor: pointer; }
 
 .tree-empty { padding: 10px 6px; font-size: .88em; }
 .tree-empty p { margin: 0 0 8px; }
@@ -440,6 +449,11 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 .chk-warn .chk-h { color: var(--warn); }
 .chk-bad { background: var(--bad-soft); border-color: var(--bad); }
 .chk-bad .chk-h { color: var(--bad); }
+/* 灰字提示：跟 chk-warn 区分开 —— 它不计入「N 个失效引用」，也不改状态栏。
+   所以刻意不用 warn 那套黄色，免得看起来像出了问题。 */
+.chk-dim { background: var(--panel-2); border-color: var(--line); }
+.chk-dim .chk-h { color: var(--dim); }
+.chk-where { color: var(--faint); font-size: .86em; }
 
 .chk-conflict { margin-top: 7px; }
 .chk-cb { line-height: 1.5; }

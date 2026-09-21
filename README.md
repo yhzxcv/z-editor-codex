@@ -22,7 +22,7 @@ vendor/      预打包的 CodeMirror 6（见「构建」一节）
 ```
 
 **逻辑层和界面层是分开的**，这不是洁癖：逻辑层全部是不碰 DOM 的纯函数，
-所以 `tools/check-level.js` 里那 130 条断言能在 Node 里直接跑，不用开浏览器。
+所以 `tools/check-level.js` 里那 174 条断言能在 Node 里直接跑，不用开浏览器。
 写界面时踩的坑基本都靠这个分工在提交前拦住了。
 
 ### `js/level/` —— 从 Kotlin 移植的逻辑
@@ -35,6 +35,7 @@ vendor/      预打包的 CodeMirror 6（见「构建」一节）
 | `conflicts.js` | `ModuleConflictRegistry.kt` | 11 条模块互斥规则，中文说明照抄 |
 | `edit.js` | `LevelEditOperations.kt` 等 | 插入模块/事件、删对象、清孤儿、重命名 |
 | `outline.js` | — | 把扁平对象表整理成界面用的对象树（网页版新增，Kotlin 没有对应物） |
+| `refs.js` | `ReferenceRepository.kt` | 上游参考文件的运行时入口：来源有没有数据、别名在不在 |
 
 ### `js/editor/` —— 界面
 
@@ -100,6 +101,49 @@ vendor/      预打包的 CodeMirror 6（见「构建」一节）
   （`1.0` vs `1`，同一个数），1 份因为 Z-Editor 保存时本来就会重排顺序。
   三类差异都有断言钉住，不是「看着差不多」。
 
+### 外部参考文件：`reference/`
+
+关卡的引用是 `RTID(别名@来源)`，来源分两类，**性质完全不同**：
+
+- `@CurrentLevel` —— 对象就在本文件里，找不到才是真出错；
+- `@LevelModules`、`@ZombieTypes`、`@PlantTypes`、`@PropertySheets`、
+  `@GridItemTypes`、`@ZombieActions` —— **按定义就在别的文件里**。
+
+网页版原先只认本文件，于是把外部引用全判成「找不到引用」：9 份内置模板去重后
+153 条引用里有 **71 条是误报**。误报把这一栏彻底变成噪音，真出错时用户已经不看它了。
+
+修法是搬上游那 6 个参考文件（`tools/gen-refs.mjs` 生成 `reference/*.js`，共 7.4 MB），
+然后**三分**而不是两分：
+
+| 情况 | 判定 | 界面 |
+|---|---|---|
+| 有数据 + 别名在 | 引用成立 | 正常 |
+| 有数据 + 别名不在 | 可能拼错了 | **灰字提示，不算错误** |
+| 没数据 | 不判 | 什么都不显示 |
+
+最后一行是关键：上游资产里出现过的来源有二十来个（`@SkillTypes` 2938 条、
+`@ProjectileTypes` 1694 条……），我们没有它们的参考文件。硬判这些来源
+就是满屏误报。上游 `ReferenceRepository.getLevelModuleAliases()` 在参考文件
+没加载时返回 `null`、调用方直接跳过校验 —— fail-open 是上游明确的设计，这里沿用。
+
+**数据是原样嵌进 JS 的**，不是 `JSON.stringify` 后的字符串：`reference/<Source>.js`
+里那段就是上游 JSON 的原文（逐字节未改），直接当对象字面量求值。
+这么存是因为它同时是「注入式自定义」的数据源，要能原样取到完整对象图；
+仓库里那份字节就是上游那份字节，逐字节对账不用先解码。
+
+代价是**裸字面量有几个经典炸点**：`</script`（HTML 解析器会提前掐断脚本）、`<!--`、
+U+2028/U+2029、CRLF、BOM，还有一个最阴的 —— 键名 `__proto__`：对象字面量里它是
+**设置原型**，`JSON.parse` 里它是普通自有属性，两者字节相同、求值结果不同，
+**逐字节对账发现不了**。上游这 6 个文件今天一个都没踩上，但那是快照的性质、
+不是我们能保证的，所以 `gen-refs.mjs` 把这几项**逐条断言**，不合格就报错退出 ——
+生成一个会白屏的页面才是最坏的结果。
+
+`js/level/refs.js` 是运行时入口。有一条**很脆的约束**：它排在数据脚本**前面**，
+所以必须在**调用时**才读 `window.ZLevel.RefData`，别名集合也必须惰性构建。
+写成 `var RefData = window.ZLevel.RefData;` 会让整个功能静默失效 ——
+失败方向恰好是「不判」，也就是回到误报更少、但什么都不校验的状态，
+页面一切正常、没有任何症状。
+
 ## 构建
 
 **唯一的构建步骤是 CodeMirror 6**：
@@ -127,9 +171,9 @@ npm run check        # 三个套件，全绿才算过
 | 套件 | 断言数 | 查什么 |
 |---|---|---|
 | `tools/check.js` | 47 | 图鉴数据层：条目结构、RTID 表名白名单、检索 |
-| `tools/check-level.js` | 130 | 关卡逻辑层，含上面那道契约闸与模板逐字节比对 |
-| `tools/check-editor.js` | 36 | 界面接线：语法、资源存在、DOM id、样式类、CM 导出对账、错误定位、**按 HTML 顺序真加载一遍** |
-| `tools/check-boot.js` | 75 | 整页在无头 DOM 里跑起来并**真的去点**（要 jsdom，`npm run check-boot` 单独跑） |
+| `tools/check-level.js` | 174 | 关卡逻辑层，含上面那道契约闸、模板逐字节比对、外部参考文件的分类与降级 |
+| `tools/check-editor.js` | 42 | 界面接线：语法、资源存在、DOM id、样式类、CM 导出对账、错误定位、**按 HTML 顺序真加载一遍** |
+| `tools/check-boot.js` | 86 | 整页在无头 DOM 里跑起来并**真的去点**（要 jsdom，`npm run check-boot` 单独跑） |
 
 **套件在任何机器上都能跑完整**，不依赖 Z-Editor 检出：金标准是上游那 9 个内置关卡模板，
 但那个路径写死在作者机器上，所以仓库里放了同样 9 份在 `tools/fixtures/templates/`。
@@ -163,7 +207,7 @@ DOM），逐个字符钉死「手滑时波浪线画在哪、说什么」；最�
 ## 无头整页：`npm run check-boot`
 
 上面那套不管怎么做，都只能证明「文件之间的关系是对的」，证明不了「页面跑起来是对的」。
-`tools/check-boot.js` 补这一块：按 `index.html` 的顺序把 25 个脚本注进 jsdom、触发
+`tools/check-boot.js` 补这一块：按 `index.html` 的顺序把 32 个脚本注进 jsdom、触发
 `DOMContentLoaded`、等 `boot()` 跑完，然后**真的去点** —— 插模块、从对象树删、连撤两次、
 打进一个语法错误、切主题。
 
@@ -277,3 +321,7 @@ Cloudflare Pages：
 - `ChallengeRepository.kt` 是第三个注册表（另有 18 个 `initialDataFactory`），骨架没收录
 - 结构操作后可考虑保留「原始字节」用于 diff 提示（现在只是标记「已做过结构操作」）
 - Service Worker 离线缓存（需要 https 或 localhost）
+- **参考文件是快照**：`reference/*.js` 里的字节等于上游 `assets/reference/*.json`
+  在生成那一刻的字节。上游更新后要重跑 `node tools/gen-refs.mjs`，
+  并同步 `tools/check-level.js` 里那几个别名数（生成器跑完会把数字打出来）。
+  有 Z-Editor 检出时，自检里那条逐字节对账会先提醒你

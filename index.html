@@ -71,8 +71,9 @@
 
 <input type="file" id="file-input" accept=".json,application/json" hidden>
 
-<!-- 关卡逻辑层：顺序有依赖（rtid 最先，edit 最后） -->
+<!-- 关卡逻辑层：顺序有依赖（rtid 最先，refs 紧跟其后，edit 最后） -->
 <script src="js/level/rtid.js"></script>
+<script src="js/level/refs.js"></script>
 <script src="js/level/order.js"></script>
 <script src="js/level/parse.js"></script>
 <script src="js/level/conflicts.js"></script>
@@ -83,6 +84,16 @@
 <script src="data/modules.js"></script>
 <script src="data/module-skeletons.js"></script>
 <script src="data/templates.js"></script>
+
+<!-- 外部参考文件（tools/gen-refs.mjs 生成，共 7.4 MB）
+     它们只往 window.ZLevel.RefData 上挂数据；Refs 在**调用时**才读，
+     所以排在这里就够，不必更早 —— 唯一的硬约束是必须在 boot() 之前。 -->
+<script src="reference/GridItemTypes.js"></script>
+<script src="reference/LevelModules.js"></script>
+<script src="reference/PlantTypes.js"></script>
+<script src="reference/PropertySheets.js"></script>
+<script src="reference/ZombieActions.js"></script>
+<script src="reference/ZombieTypes.js"></script>
 
 <!-- 代码图鉴的数据层（图鉴插入面板复用；UI 是编辑器自己的） -->
 <script src="js/chapters.js"></script>

@@ -9,3 +9,18 @@ tools/fixtures/templates/*.json  -text
 # 图鉴 TXT 源文同理：它是 data/ch-*.js 的源头，迁移工具按行处理，
 # 换行被改写会让「跟源文对得上」这件事失去意义。
 代码图鉴.txt  -text
+
+# 外部参考文件（tools/gen-refs.mjs 生成）：上游 JSON 原文逐字节嵌在里面，
+# 自检要拿它跟上游对账，换行转换会直接毁掉逐字节相等。同上，-text。
+#
+# 再加 -diff：每个文件是一行 5 MB 的 JSON，默认的文本 diff 会吐出天文数字的
+# 单行改动，`git diff` 和 review 都没法看。它们本来就是生成物、源头在上游，
+# 该看的是工具不是产物，所以干脆标成二进制、让 git 说「Binary files differ」。
+# 注意只标这 6 个生成物，别把 reference/ 整个目录标了 —— 目录规则会连带
+# 影响以后往里放的东西。
+/reference/GridItemTypes.js   -text -diff
+/reference/LevelModules.js    -text -diff
+/reference/PlantTypes.js      -text -diff
+/reference/PropertySheets.js  -text -diff
+/reference/ZombieActions.js   -text -diff
+/reference/ZombieTypes.js     -text -diff

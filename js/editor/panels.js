@@ -122,15 +122,27 @@ window.ZEditor.Panels = (function () {
     var orphaned = Parse.findOrphanedObjects(objs);
     var invalid = Parse.findInvalidLevelModuleReferences(objs, ctx.levelModuleAliases());
     var conflicts = Conflicts.check(objs);
-    var outline = window.ZLevel.Outline.build(objs);
+    var outline = window.ZLevel.Outline.build(objs, ctx.refs());
+    var notes = outline.notes;
 
-    if (!orphaned.length && !invalid.length && !conflicts.length && !outline.dangling.length) {
+    // 硬问题：孤儿 / 失效引用 / 模块冲突 / 悬空引用。灰字提示不算问题。
+    var hard = orphaned.length + invalid.length + conflicts.length + outline.dangling.length;
+
+    if (!hard && !notes.length) {
       var good = el('div', 'chk chk-ok');
       good.appendChild(el('div', 'chk-h', '没发现问题'));
       good.appendChild(el('div', 'chk-b',
         objs.length + ' 个对象，模块引用齐全，没有孤儿，没有模块冲突。'));
       host.appendChild(good);
       return;
+    }
+
+    if (!hard) {
+      var fine = el('div', 'chk chk-ok');
+      fine.appendChild(el('div', 'chk-h', '没发现问题'));
+      fine.appendChild(el('div', 'chk-b',
+        objs.length + ' 个对象。下面只是提示，不影响这份文件。'));
+      host.appendChild(fine);
     }
 
     if (invalid.length) {
@@ -155,13 +167,44 @@ window.ZEditor.Panels = (function () {
       var c2 = el('div', 'chk chk-warn');
       c2.appendChild(el('div', 'chk-h', '悬空的 RTID 引用 (' + outline.dangling.length + ')'));
       c2.appendChild(el('div', 'chk-b',
-        '某个对象内部引用了文件里不存在的别名。@LevelModules 的引用不算（它们本来就在别的文件里）。'));
+        '这些引用写的是 @CurrentLevel（或者干脆没写来源），也就是「对象就在这份文件里」，' +
+        '但文件里没有这个别名。'));
       var l2 = el('ul', 'chk-list');
       outline.dangling.forEach(function (d) {
         l2.appendChild(el('li', 'mono', d.rtid));
       });
       c2.appendChild(l2);
       host.appendChild(c2);
+    }
+
+    /* 灰字那一段：外部来源我们**有**数据、但里面没有这个别名。
+     *
+     * 跟上面两段的区别是「谁说得清」：@CurrentLevel 找不到就是找不到，铁定出错；
+     * 而 `@ZombieTypes` 这种，要么是别名拼错了，要么是我们手上这份参考数据比
+     * 制作关卡时的那份旧、游戏里新加的条目还没收录进来 —— 从这份文件本身
+     * 分不出是哪种。所以只提示，不计入「N 个失效引用」，也不影响状态栏。
+     *
+     * 上游 ReferenceRepository 在参考文件没加载时直接跳过校验，是同一个态度：
+     * 拿不准的东西不报警。 */
+    if (notes.length) {
+      var c5 = el('div', 'chk chk-dim');
+      c5.appendChild(el('div', 'chk-h', '参考文件里没有这些别名 (' + notes.length + ')'));
+      c5.appendChild(el('div', 'chk-b',
+        '它们指向的来源我们有数据，但里面找不到这个别名 —— 可能拼错了，' +
+        '也可能是参考数据比游戏旧。不影响保存。'));
+      var l5 = el('ul', 'chk-list');
+      notes.forEach(function (n) {
+        var li = el('li');
+        var b = el('button', 'link mono', n.rtid);
+        b.type = 'button';
+        b.title = '来源 ' + n.source + '，' + (n.where ? '出现在 ' + n.where : '');
+        b.addEventListener('click', function () { ctx.reveal(n.rtid); });
+        li.appendChild(b);
+        if (n.where) li.appendChild(el('span', 'chk-where', '  ' + n.where));
+        l5.appendChild(li);
+      });
+      c5.appendChild(l5);
+      host.appendChild(c5);
     }
 
     if (conflicts.length) {
@@ -180,7 +223,8 @@ window.ZEditor.Panels = (function () {
       var c4 = el('div', 'chk chk-warn');
       c4.appendChild(el('div', 'chk-h', '未被引用的对象 (' + orphaned.length + ')'));
       c4.appendChild(el('div', 'chk-b',
-        '从 LevelDefinition 出发走不到它们。删掉模块后留下的空壳通常长这样，删了不影响关卡。'));
+        '从 LevelDefinition 出发走不到它们 —— 没有任何指向本文件的 RTID 引用它们。' +
+        '删掉模块后留下的空壳通常长这样。'));
       var l4 = el('ul', 'chk-list');
       orphaned.forEach(function (o) {
         var li = el('li');
