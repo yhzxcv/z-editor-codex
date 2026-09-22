@@ -134,7 +134,8 @@
       invalidRefs: rep.invalidRefs,
       conflicts: rep.conflicts,
       onCleanup: doCleanup,
-      onEdit: onEditNode
+      onEdit: onEditNode,
+      onEditRef: onEditRef
     });
     // 图鉴栏**不在这里**：它跟文档状态无关，重建会丢浮层里的搜索词和打开的大类
   }
@@ -395,6 +396,62 @@
       data: node.obj.objdata || {}
     }, btn || null);
     if (window.innerWidth < 940) closeSidebar();
+  }
+
+  /**
+   * 树上「引用」那一行尾的 ✎ —— 开详情页改**这条引用指着的键名**。
+   *
+   * 别的什么都不用递：那一行要改的只有 `LevelDefinition.Modules` 里的一串文本，
+   * 对象不在本文件里（见 module-panel 的 renderRef / openRef）。
+   *
+   * @param {Object} item outline.external 的一行 { rtid, alias, source, objClass }
+   * @param {HTMLElement} [btn] 触发它的那个 ✎（关浮层时把焦点还给它）
+   */
+  function onEditRef(item, btn) {
+    if (!item || !item.rtid) return;
+    ensureModulePanel();                 // 同 onEditNode：浮层是懒建的
+    ModulePanel.openRef(item, btn || null);
+    if (window.innerWidth < 940) closeSidebar();
+  }
+
+  /**
+   * 改一条已挂引用的键名。返回 {ok, reason}，跟另外两条接缝同一个约定。
+   *
+   * 认人用 **(旧代号, 来源)**，不认位置 —— 要改的是 Modules 里的一个字符串，浮层开着
+   * 的时候用户在文本里插一行，下标就全漂了（跟 doSaveObject 那边认位置的道理相反：
+   * 那边改的是"这个对象"，位置就是它的身份；这边改的是"这条引用"，名字才是身份）。
+   *
+   * @param {string} oldRtid 那条引用现在的整串（`RTID(代号@来源)`）
+   * @param {string} newAlias 新代号
+   */
+  function doRetargetRef(oldRtid, newAlias) {
+    if (state.get().parseError) return { ok: false, reason: 'JSON 有语法错误，先修好再改' };
+    var r = state.applyStructural(function (objects) {
+      return Edit.retargetModuleRef(objects, oldRtid, newAlias);
+    }, 'update');
+
+    if (!r.ok) {
+      /* 这几条都是 Edit 那边给的 reason（照用户挑的那个代号写的，比这里重编一句准）。 */
+      if (r.error === 'bad-name' || r.error === 'foreign-alias' ||
+          r.error === 'unknown-class' || r.error === 'no-modules' || r.error === 'bad-rtid') {
+        return { ok: false, reason: r.reason || '这个键名不能用' };
+      }
+      if (r.error === 'gone') {
+        return { ok: false, reason: r.reason || '这条引用已经不在文件里了' };
+      }
+      if (r.error === 'parse-error') return { ok: false, reason: 'JSON 有语法错误，先修好再改' };
+      return { ok: false, reason: '改键名失败：' + r.error };
+    }
+
+    /* 一处也不比"已经不在文件里"好到哪去：那说明浮层开着的时候用户把这条引用删了/改了。
+     * Edit 那边对这一条就是按 gone 拒的，这里只是兜底（它俩不该同时出现）。 */
+    if (!r.changed) return { ok: false, reason: '这条引用已经不在文件里了 —— 关掉重新点一次' };
+
+    /* 跳到改完的那条引用上。按整串 RTID 搜（跟树上那一行的跳法是同一条路），
+     * 这样用户一眼看得见"改的就是这一个地方"。 */
+    revealOrWarn(r.rtid);
+    toast('键名改成「' + r.alias + '」' + (r.changed > 1 ? '（' + r.changed + ' 处）' : ''));
+    return { ok: true };
   }
 
   /**
@@ -792,9 +849,10 @@
    * 它的侧栏**只建一次、之后不重建**（展开状态不会自己收回去，因为随关卡变的东西
    * —— 插入目标波次那个下拉 —— 搬进浮层了）。
    *
-   * 七条接缝都在 main.js 这一侧：
-   *   onInsertModule / onInsertEvent / onSaveObject  返回 {ok, reason}，见上面
-   *     （onInsertModule 和 onSaveObject 都多带一个"代号"，没填传 null）
+   * 八条接缝都在 main.js 这一侧：
+   *   onInsertModule / onInsertEvent / onSaveObject / onRetargetRef  返回 {ok, reason}，
+   *     见上面（onInsertModule / onSaveObject / onRetargetRef 都多带一个"代号"，
+   *     没改传 null）
    *   onWaveCount   浮层每次打开现问一次「现在几波」
    *   onHasClass    这份关卡里有没有这个 objClass 的对象（浮层判断"有没有波次容器"用）
    *   onModuleExists 这个模块是不是已经在这份关卡里了（浮层判断"两个会相互覆盖"用）
@@ -805,6 +863,7 @@
       onInsertModule: doInsertModule,
       onInsertEvent: doInsertEvent,
       onSaveObject: doSaveObject,
+      onRetargetRef: doRetargetRef,
       onWaveCount: function () { return waveCountOf(state.get()); },
       onHasClass: function (objClass) {
         return !!Parse.findByClass(state.get().objects, objClass);

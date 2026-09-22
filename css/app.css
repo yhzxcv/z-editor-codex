@@ -847,10 +847,14 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
    跟着"还原回默认"那一套删了，所以**现在改过的行没有任何视觉标记**：唯一的信号是顶上
    那个「已改 N 个键」。要给回来（比如改过的行换个底色）得单独加，别以为它还在。 */
 .mdl-kctl { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
-/* 键表里那一列的输入框，和「代号」那一格的框（.mdl-alias-in）共用一套外观 ——
-   CSS 上并排写，是因为它们看起来必须是同一种东西；类名分开，是因为在 JS 那边
-   含义不同（一个是"键表某一行的控件"，一个是"这个对象的代号"）。 */
-.mdl-kinput, .mdl-alias-in {
+/* 键表里那一列的输入框，和「代号 / 键名」那一格的控件（.mdl-alias-in / .mdl-ref-sel）
+   共用一套外观 —— CSS 上并排写，是因为它们看起来必须是同一种东西；类名分开，是因为在
+   JS 那边含义不同（一个是"键表某一行的控件"，一个是"这个对象/这条引用指着哪个名字"）。
+
+   下拉（.mdl-ref-sel）跟输入框同一档，只有一条不一样：它里面的字是**参考文件里的代号**，
+   全部等宽（EgyptMowers），所以字号跟输入框一样是 .95em —— 别按"这是界面控件"给它
+   加字号，候选之间的差别全在字符上。 */
+.mdl-kinput, .mdl-alias-in, .mdl-ref-sel {
   flex: 1 1 140px;
   min-width: 0;                     /* 不加这句，flex 里的 input 不肯缩 */
   padding: 4px 7px;
@@ -861,7 +865,10 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   font-family: var(--mono);
   font-size: .95em;
 }
-.mdl-kinput:focus, .mdl-alias-in:focus { outline: 2px solid var(--accent-line); outline-offset: -1px; }
+.mdl-kinput:focus, .mdl-alias-in:focus, .mdl-ref-sel:focus {
+  outline: 2px solid var(--accent-line);
+  outline-offset: -1px;
+}
 .mdl-alias-in:disabled { color: var(--faint); }
 .mdl-kinput[type="checkbox"] {
   flex: 0 0 auto;

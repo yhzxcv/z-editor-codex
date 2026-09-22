@@ -97,6 +97,106 @@ window.ZLevel.Edit = (function () {
   }
 
   /**
+   * 把 `Modules` 里那条外部引用**换个指向**：
+   * `RTID(旧代号@LevelModules)` -> `RTID(新代号@LevelModules)`。
+   *
+   * 这就是 zeditor 那个「小推车」页做的事（EditorScreen 里手写 22 行单选框，选完写回
+   * `modules[index]`）。三处**刻意不一样**：
+   *
+   *   1. 候选**现从参考数据里数**（refAliasesOf -> Refs.aliasesOfClass），不是手抄一张
+   *      表。zeditor 那张手抄表已经跟参考文件对不上了（22 条 vs 实际的 24 条），抄错的
+   *      后果是"用户选了一个游戏不认识的代号"，而屏幕上一点异样都没有。
+   *   2. **来源不动。** zeditor 写回时把来源重新拼成 "LevelModules"；这里是
+   *      `RTID(代号@来源)` 里只换代号那一段，来源一个字符都不碰（本函数只服务于
+   *      `Modules` 里那几条，但那几条的来源也未必都是 LevelModules —— 以后别的来源有
+   *      了数据，这一条就是对的；zeditor 那种写法会把 `@ZombieTypes` 的引用改成
+   *      `@LevelModules`，凭空造一条悬空引用）。
+   *   3. **一处不漏。** zeditor 用 indexOfFirst 找第一条，同一个代号在 Modules 里出现
+   *      两次时只改一条，剩下那条指着旧代号 —— 而对象树上那两行是**按别名去重**之后的
+   *      一行（见 outline.externalModules），用户根本看不出还剩一条。这里改**所有**
+   *      匹配 (代号, 来源) 的条目。
+   *
+   * 别的键里可能也有一条指向同一个外部对象的引用（`RTID(Foo@LevelModules)` 出现在某个
+   * 对象的属性和它的其他数据里）。那些**不动**：modules 列表说的是"这一关挂了哪些模块"，
+   * 别的键里那条可能是另一件事（比如"这一关用哪种小推车"是独立的一个属性），一起改就是
+   * 替用户猜。9 份内置模板里一处都没有这种情况，所以那些引用也就无从"看起来该跟着改"。
+   *
+   * 返回 {ok:true, alias, oldAlias, source, rtid, changed} /
+   *      {ok:false, error, reason}
+   * changed 是改到的条目数 —— 0 表示这条引用已经不在文件里了（浮层开着时文本被改过）。
+   */
+  function retargetModuleRef(objects, oldRtid, newAlias) {
+    var def = Parse.findLevelDefinition(objects);
+    if (!def || !def.objdata || typeof def.objdata !== 'object' || Array.isArray(def.objdata)) {
+      return { ok: false, error: 'no-modules', reason: '这份关卡里找不到 LevelDefinition' };
+    }
+    var mods = def.objdata.Modules;
+    if (!Array.isArray(mods)) {
+      return { ok: false, error: 'no-modules', reason: '这份关卡的 Modules 不是一个列表' };
+    }
+    var old = Rtid.parse(oldRtid);
+    if (!old || !old.alias || !old.source) {
+      return { ok: false, error: 'bad-rtid', reason: '读不出这条引用的代号和来源' };
+    }
+    var name = String(newAlias == null ? '' : newAlias).trim();
+    var bad = aliasFormatProblem(name);
+    if (bad) return { ok: false, error: 'bad-name', reason: bad };
+
+    /* 新代号得是**同一个类**在这一档里的别的代号 —— 这一条是这个小功能的全部意义：
+     * 「小推车」指的是 LawnMowerProperties 的哪一款，换的只是那一款，不是换成一个别的
+     * 模块。类从旧代号现查（参考数据在调用时读），查不到就不放行：
+     *   有数据 + 这个代号查不到类  -> 旧代号在那个来源里根本不存在（多半是拼错的），
+     *                                也就不知道用户想指哪个类 -> 拒绝，让他先在文本里改对
+     *   没数据                     -> 不拦（fail-open，跟 refs.js 那一条一致）
+     * 两个问题分开问：`Refs.has(来源)` 回答"有没有数据"，classOfAlias 回答"是哪个类" ——
+     * 拿后者的 null 去当"没数据"，拼错的代号就会被静默放行。 */
+    var Refs = window.ZLevel.Refs;
+    var hasData = !!(Refs && Refs.has && Refs.has(old.source));
+    if (hasData) {
+      var cls = Refs.classOfAlias(old.source, old.alias);
+      if (!cls) {
+        return {
+          ok: false, error: 'unknown-class',
+          reason: '「' + old.alias + '」在 ' + old.source + ' 里找不到，不知道这一条指的是哪个类 —— ' +
+            '先到文本里把这个代号改对'
+        };
+      }
+      var cands = refAliasesOf(old.source, cls) || [];
+      if (cands.indexOf(name) < 0) {
+        return {
+          ok: false, error: 'foreign-alias',
+          reason: '「' + name + '」不是 ' + old.source + ' 里 ' + cls + ' 的代号 —— ' +
+            '只能换成那儿已经有的（' + cands.length + ' 个）'
+        };
+      }
+    }
+    if (name === old.alias) {
+      return { ok: true, unchanged: true, changed: 0, alias: name, oldAlias: old.alias,
+               source: old.source, rtid: old.full };
+    }
+
+    var next = Rtid.build(name, old.source);
+    var changed = 0;
+    for (var i = 0; i < mods.length; i++) {
+      if (typeof mods[i] !== 'string') continue;
+      var r = Rtid.parse(mods[i]);
+      /* 来源跟代号都按字面比：`RTID(A@LevelModules)` 和 `RTID(A@ZombieTypes)` 是两条
+       * 不同的引用，只看代号会在改一条的时候顺手把另一条也改了。 */
+      if (!r || r.alias !== old.alias || r.source !== old.source) continue;
+      mods[i] = next;
+      changed++;
+    }
+    if (!changed) {
+      return {
+        ok: false, error: 'gone',
+        reason: '这条引用已经不在 Modules 里了（浮层开着的这段时间文本改过）—— 关掉重新点一次'
+      };
+    }
+    return { ok: true, changed: changed, alias: name, oldAlias: old.alias,
+             source: old.source, rtid: next };
+  }
+
+  /**
    * 插入一个模块。meta 来自 data/modules.js（或 registry-raw.json 的条目），
    * skeleton 来自 data/module-skeletons.js。
    *
@@ -146,22 +246,42 @@ window.ZLevel.Edit = (function () {
     var finalAlias;
 
     if (wantedAlias != null) {
-      /* 指向**别的文件**的模块不许改代号：`RTID(代号@LevelModules)` 里那个代号说的是
-       * 参考文件里那个对象，本文件改不动它 —— 改了写下去就是一条谁也接不上的引用，
-       * 而屏幕上（对象树、失效引用）要等下一次重解析才看得出来。
-       * 浮层那一格已经是灰的（module-panel 的 renderDetail / renderObject 两档），
-       * 这里是第二道闸：接缝不只浮层一个调用方。 */
-      if (defaultSource !== 'CurrentLevel') {
-        return {
-          ok: false, error: 'foreign-alias',
-          reason: '这个模块的对象定义在 ' + defaultSource + ' 里（别的文件），代号改不了 —— ' +
-            '改了本文件就对不上它了'
-        };
-      }
-      /* target 传 null：新对象还没进 objects，没有任何对象该被排除在"已占用"之外。 */
-      var bad = aliasProblem(objects, null, wantedAlias);
+      /* 指向**别的文件**的模块（defaultSource 不是 CurrentLevel）：`RTID(代号@LevelModules)`
+       * 里那个代号说的是参考文件里那个对象的名字，本文件改不动它。所以这一档**不是随便
+       * 填**，而是从参考文件里**已经有的那些**里挑一个 —— 2026-09-22 用户要的正是这个
+       * （拿 zeditor 的小推车页当样板：那一页就是让人在 24 种小推车里挑）。
+       *
+       * 于是两道关，跟本地那条不一样：
+       *   形状   照旧（aliasFormatProblem）—— 往 RTID 里塞 `@`/括号会把引用语法弄坏
+       *   在不在 必须是那个来源里**这个类**的代号（refAliasKnown）。不在的话，写下去
+       *          虽然也不是"查不出来"（classifyRef 会把它归成 external-typo，对象树上
+       *          多一条失效引用），但那是**按完插入之后**才发生的事 —— 用户按之前本来就
+       *          不该被允许挑一个游戏不认识的代号
+       *
+       * **撞名那一关不适用**：本文件里恰好有个对象也叫这个名字不算冲突，RTID 靠 `@来源`
+       * 区分（见 aliasFormatProblem 那段）。所以这里不走 aliasProblem。
+       * 数据没有（refAliasKnown 返回 null）就不拦 —— 跟 refs.js 的 fail-open 同一条。
+       * 浮层那一格现在是个下拉（module-panel 的键名选择器），这里是第二道闸：
+       * 接缝不只浮层一个调用方。 */
+      var want = String(wantedAlias).trim();
+      var bad = aliasFormatProblem(want);
       if (bad) return { ok: false, error: 'bad-name', reason: bad };
-      finalAlias = String(wantedAlias).trim();
+      if (defaultSource !== 'CurrentLevel') {
+        if (refAliasKnown(defaultSource, meta.objClass, want) === false) {
+          var cands = refAliasesOf(defaultSource, meta.objClass);
+          return {
+            ok: false, error: 'foreign-alias',
+            reason: '「' + want + '」不是 ' + defaultSource + ' 里 ' + meta.objClass + ' 的代号 —— ' +
+              '这个模块的对象在别的文件里，只能指着那儿已经有的' +
+              (cands ? '（' + cands.length + ' 个）' : '')
+          };
+        }
+      } else {
+        /* target 传 null：新对象还没进 objects，没有任何对象该被排除在"已占用"之外。 */
+        var taken = aliasProblem(objects, null, want);
+        if (taken) return { ok: false, error: 'bad-name', reason: taken };
+      }
+      finalAlias = want;
     } else {
       /* 没填代号：默认别名 + 去重。非 allowMultiple 的模块重复插入也走这儿 ——
        * 用户要的是"允许插，但告诉他两个会相互覆盖"（提示在浮层那一侧）。 */
@@ -487,22 +607,60 @@ window.ZLevel.Edit = (function () {
   var ALIAS_RE = /^[A-Za-z0-9_-]+$/;
 
   /**
+   * 代号的**形状**那一关（跟撞名无关的那一半）。能用返回 ''，否则返回给用户看的原因。
+   *
+   * 单拎出来是因为指向别的文件的引用也要过这一关、但不过撞名那一关：那个名字在**别的
+   * 文件**里，本文件恰好有个同名对象跟它没关系（RTID 靠 `@来源` 区分，`RTID(Foo@LevelModules)`
+   * 和本文件里那个 Foo 互不干涉）。形状那一关跟来源无关，照样得把 —— 见 ALIAS_RE 那段。
+   */
+  function aliasFormatProblem(newAlias) {
+    var name = String(newAlias == null ? '' : newAlias).trim();
+    if (!name) return '代号不能为空';
+    if (!ALIAS_RE.test(name)) {
+      return '「' + name + '」不能当代号：只能用字母、数字、下划线和连字符';
+    }
+    return '';
+  }
+
+  /**
    * 一个新代号能不能用。能用返回 ''，否则返回给用户看的原因。
    *
    * target 是"要改名的那个对象"，用来把它自己排除在"已占用"之外 ——
    * 它自己正用着这个名字（或者本来就叫这个名）都不算撞名。
    */
   function aliasProblem(objects, target, newAlias) {
+    var bad = aliasFormatProblem(newAlias);
+    if (bad) return bad;
     var name = String(newAlias == null ? '' : newAlias).trim();
-    if (!name) return '代号不能为空';
-    if (!ALIAS_RE.test(name)) {
-      return '「' + name + '」不能当代号：只能用字母、数字、下划线和连字符';
-    }
     var taken = Parse.asList(objects).some(function (o) {
       return o !== target && Array.isArray(o.aliases) && o.aliases.indexOf(name) >= 0;
     });
     if (taken) return '这份文件里已经有对象叫「' + name + '」了，换一个';
     return '';
+  }
+
+  /**
+   * 这个来源里有没有这个类的这个代号。三种回答，**别把后两种混起来**：
+   *
+   *   true   有（那就可以指它）
+   *   false  我们**有**这个来源的数据，而这个类没有这个名字 -> 指过去就是一条悬空引用
+   *   null   **不知道** —— 那个来源我们没有数据（@SkillTypes 那二十来个），或者连 Refs
+   *          都没挂上来。跟 refs.js 的 fail-open 同一条：不知道就不拦。
+   *
+   * 「换一个指向」的两个入口（插入时挑一个、改已经挂着的那条）共用这一条判据 ——
+   * 两个入口一件事，两边说的必须是同一句话。
+   */
+  function refAliasKnown(source, objClass, alias) {
+    var list = refAliasesOf(source, objClass);
+    if (list === null) return null;
+    return list.indexOf(String(alias == null ? '' : alias).trim()) >= 0;
+  }
+
+  /** 这个来源里、这个类能用的代号（去重排序）；没数据返回 null。给上面那条和提示文案用。 */
+  function refAliasesOf(source, objClass) {
+    var Refs = window.ZLevel.Refs;      // 调用时读：Refs 排在 edit.js 前面，但数据在后面
+    if (!Refs || !Refs.aliasesOfClass) return null;
+    return Refs.aliasesOfClass(source, objClass);
   }
 
   /**
@@ -581,6 +739,9 @@ window.ZLevel.Edit = (function () {
     firstAliasOf: firstAliasOf,
     appendModuleReference: appendModuleReference,
     removeModuleReference: removeModuleReference,
+    retargetModuleRef: retargetModuleRef,
+    refAliasKnown: refAliasKnown,
+    refAliasesOf: refAliasesOf,
     moduleExists: moduleExists,
     insertModule: insertModule,
     insertEvent: insertEvent,

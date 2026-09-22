@@ -106,11 +106,11 @@
  * 个空数组"，说不出里面每条的字段。那一层还没落地，所以眼下**所有**结构值键都是
  * 这个框，这是有意的。
  *
- * ── 同一个浮层，两个入口：**插入** 和 **改参数** ──
+ * ── 同一个浮层，三个入口：**插入** / **改参数** / **改键名** ──
  *
  * 用户要的是"点侧栏里的对象，弹出它的编辑框，照着注释改参数"。那张编辑框跟插入
  * 表单**是同一张表**：一样的键名、一样的形状挑控件、一样的注释来源、一样的填错拦截。
- * 差别只有三处，都在下面这些 mode 分支里：
+ * 差别只有几处，都在下面这些 mode 分支里：
  *
  *              插入（mode='insert'）          改参数（mode='edit'）
  *   行从哪来   插入骨架 data/module-skeletons  这个对象**当前的 objdata**
@@ -118,7 +118,11 @@
  *   按下去     插进关卡、跳过去                改文本里那几个值、跳回那个对象
  *   代号那格   新对象的代号（预填默认别名）    首别名；改它 = 本文件所有引用一起改
  *
- * 两个入口分别是：侧栏「模块」页的一行（插入），和对象树一行上那个 ✎（改参数）。
+ * 第三档 **改键名（mode='ref'）** 是给**对象不在本文件**的那种模块的：它没有 objdata
+ * 可列（一行键都没有），能改的只有 `LevelDefinition.Modules` 里那条引用指着参考文件里的
+ * 哪一个代号。所以它是一屏没有键表的详情，只有那一格下拉 —— 见 renderRef。
+ * 三个入口分别是：侧栏「模块」页的一行（插入）、对象树一行上的 ✎（改参数）、
+ * 对象树「引用」那一行尾的 ✎（改键名）。
  *
  * 为什么行从 objdata 来：要改的是**这个对象**的参数。骨架说的是"新建出来长什么样"，
  * 拿它当行表的话，用户在界面上会看不到自己（或游戏）后来加的那些键，而界面上一点
@@ -136,12 +140,13 @@
  *
  * ── 改代号那一格：两档都有，做的事不一样 ──
  *
- * 键表上面单独一格「代号」（`.mdl-alias`）。
+ * 键表上面单独一格（`.mdl-alias`）。**这一格有两个控件**（输入框 / 下拉），三档里
+ * 按"这个名字从哪来"选一个露出来 —— 见 fillRefSel 那段。
  *
  * **改参数**那一档是图形界面相对文本模式的**补偿**：手改一处别名、漏改十处引用，
  * 改完就是一串悬空引用，而屏幕上一点异样都没有。这里把本文件里所有
  * `RTID(老代号@CurrentLevel)` 一起改掉（别的来源指的是**别的文件**，一个都不碰
- * —— 理由写在 Edit.renameAlias 头上）。
+ * —— 理由写在 Edit.renameAlias 头上）。标题是「代号」，控件是输入框。
  *
  * **插入**那一档填的是**新对象的代号**（2026-09-22 用户要的："新建模块界面也要支持
  * 代号命名"），预填元数据里的默认别名。**改了才递下去**：没改的话走的还是"默认别名
@@ -149,17 +154,22 @@
  * 被拒，而用户什么都没填）。填了就按他填的来，**撞名一律拒绝、不静默加序号** ——
  * 理由写在 Edit.insertModule 头上。
  *
- * **指向别的文件的模块两档都改不了代号**（2026-09-22 用户要的）：defaultSource 不是
- * CurrentLevel 时，`RTID(代号@LevelModules)` 里那个代号说的是参考文件里那个对象的名字，
- * 本文件改不动它。那一格于是是灰的，底下有一句为什么。判据两档各从哪儿来见
- * renderDetail / renderObject 的注释。
+ * **指向别的文件的模块**（defaultSource 不是 CurrentLevel）：`RTID(代号@LevelModules)`
+ * 里那个代号说的是参考文件里那个对象的名字，本文件改不动它 —— 于是这一格是**挑**不是
+ * **填**：候选是那儿**已经有的**代号，标题也换成「键名」（2026-09-22 用户的原话是
+ * "改插入的键名"，拿 zeditor 的小推车页当样板）。**插入**和**改键名**两档共用这一套
+ * （renderDetail / renderRef）。降级：那个来源我们没有数据时摆不出候选，退回灰输入框
+ * ——那是这一格原先的样子。
  *
- * 两道闸两档共用：形状（面板自己实时判，`[A-Za-z0-9_-]`，跟 Edit.ALIAS_RE 同一套
- * 口径）和撞名（要知道整份文件的对象列表，只有 main.js 判得了 —— 它拒绝时给的那句
- * 话原样显示在按钮上面）。撞名不许"差不多就改吧"：Parse 的可达性分析、对象树、
- * findOrphanedObjects 全是按别名认人的，两个对象共用一个名字之后这一堆分析都在猜。
+ * 两道闸：形状（面板自己实时判，`[A-Za-z0-9_-]`，跟 Edit.ALIAS_RE 同一套口径；挑的那
+ * 一档还要在参考文件的候选里，判据在 Edit.refAliasKnown）和撞名（要知道整份文件的对象
+ * 列表，只有 main.js 判得了 —— 它拒绝时给的那句话原样显示在按钮上面；**只管本文件的
+ * 代号**，外部引用那个名字在别的文件里，跟本文件有没有重名对象没关系）。撞名不许
+ * "差不多就改吧"：Parse 的可达性分析、对象树、findOrphanedObjects 全是按别名认人的，
+ * 两个对象共用一个名字之后这一堆分析都在猜。
  *
  * 改名和改键是 main.js 里**同一次**结构操作，所以按一次「保存」= 一步撤销。
+ * 「改键名」那一档也是（Edit.retargetModuleRef 一次调用改完 Modules 里所有匹配的条目）。
  *
  * ── 浮层底下那几条提示：灰字 / 警示色两档 ──
  *
@@ -211,7 +221,11 @@ window.ZEditor.ModulePanel = (function () {
   var mkeysH = null, mkeys = null, mnotes = null, merr = null;
   var waveWrap = null, waveSel = null, insertBtn = null;
   var mformBar = null, mformCount = null;
-  var aliasWrap = null, aliasIn = null, aliasHint = null;
+  var aliasWrap = null, aliasLab = null, aliasIn = null, aliasHint = null;
+  /* 「键名」那个下拉。跟 typo 无关，跟 aliasIn **共用同一格、同一个变量**（见
+   * fillRefSel）—— 它们回答的是同一个问题："这条引用指着哪个名字"，只是一个自己起名、
+   * 一个从参考文件里已经有的里面挑。同时只露一个。 */
+  var refSel = null;
 
   /* ── 表单状态：只活在浮层开着的那段时间里 ──
    * 每次 openOverlay 都清空，不做持久化 —— 换一个模块看详情，上一次改的值不该
@@ -223,11 +237,15 @@ window.ZEditor.ModulePanel = (function () {
   var ctlRows = [];        // 行上的控件句柄，改了值只刷新这几处，不重画整张表
   var rowEls = {};         // 键名 -> 那一行的 DOM。整行要换（absent <-> 有值）时按它找
 
-  /* 「代号」那一格（只有改参数那一档有，见 renderObject）。
-   * aliasOrig 是打开这一刻这个对象的首别名 —— 判"改没改"要拿它比，
-   * 不是拿输入框里上一次的值比。 */
+  /* 「代号」那一格（改参数那一档）和「键名」那一格（引用那一档）。
+   * aliasOrig 是打开这一刻这个对象的首别名 / 这条引用当前的代号 —— 判"改没改"要拿它比，
+   * 不是拿控件里上一次的值比。 */
   var aliasOrig = '';
   var aliasVal = '';
+
+  /* 「改键名」那一档认人用：{ rtid, source, alias }。跟 editId 一样**不存对象引用** ——
+   * 要改的是 LevelDefinition.Modules 里的一个字符串，按 (代号, 来源) 现找。 */
+  var refId = null;
 
   /* 上一次画出来的键表长什么样 —— 只给 state() 用。自检要断言"这个模块读出了 4 个键"
    * 和"走的是哪一档降级"，去 DOM 里数 .mdl-krow 反推的话，把三档写岔了照样能过。 */
@@ -382,6 +400,8 @@ window.ZEditor.ModulePanel = (function () {
        * 漏了这一半，「只改代号」这个用法按钮永远是灰的，用户会以为功能没做。 */
       return !lastRows.some(isEdited) && !aliasChanged();
     }
+    /* 引用那一档只有一件事：键名。没换就不给按（按了也没得写）。 */
+    if (ui.mode === 'ref') return !aliasChanged();
     if (ui.kind === 'event') return !!waveSel.disabled;
     return false;
   }
@@ -660,7 +680,11 @@ window.ZEditor.ModulePanel = (function () {
      * 它跟键表用同一套网格（左边名字、右边控件），读起来才是一张表；但它在 .mdl-keys
      * 外面，因为 paint() 每次会清空 mkeys，而这一格在两次重画之间要保住用户正在打的字。 */
     aliasWrap = el('div', 'mdl-alias');
-    aliasWrap.appendChild(el('span', 'mdl-alias-l', '代号'));
+    /* 标题跟着控件走：「代号」= 自己起一个名字，「键名」= 从参考文件里挑一个
+     * （2026-09-22 用户点名的说法，见 renderRef）。同一格里换个词，用户才知道
+     * 这一格现在要他干什么。 */
+    aliasLab = el('span', 'mdl-alias-l', '代号');
+    aliasWrap.appendChild(aliasLab);
     var aliasCtl = el('div', 'mdl-alias-ctl');
     aliasIn = document.createElement('input');
     aliasIn.type = 'text';
@@ -674,6 +698,19 @@ window.ZEditor.ModulePanel = (function () {
       refresh();
     });
     aliasCtl.appendChild(aliasIn);
+
+    /* 「键名」下拉 —— 指向别的文件的模块（插入那一档）和**已经挂着的那条引用**
+     * （改键名那一档）用它。选项是参考文件里**这个类已经有的代号**（见 fillRefSel）。
+     * 它跟 aliasIn 是同一个槽位的两种控件，同时只露一个。 */
+    refSel = document.createElement('select');
+    refSel.className = 'mdl-ref-sel';
+    refSel.hidden = true;
+    refSel.addEventListener('change', function () {
+      aliasVal = refSel.value;
+      refresh();
+    });
+    aliasCtl.appendChild(refSel);
+
     aliasHint = el('span', 'mdl-alias-hint');
     aliasCtl.appendChild(aliasHint);
     aliasWrap.appendChild(aliasCtl);
@@ -794,6 +831,64 @@ window.ZEditor.ModulePanel = (function () {
   function setAliasHint(text) {
     aliasHint.textContent = text || '';
     aliasHint.hidden = !text;
+  }
+
+  // ── 那一格的两个控件（「代号」输入框 / 「键名」下拉） ──────────────────
+  //
+  // 两个控件回答的是同一个问题："这条引用指着哪个名字"。区别只在名字从哪来：
+  //   本文件里的对象   自己起一个（输入框，撞名由 main.js 拦）
+  //   别的文件里的对象 从那儿**已经有的**里面挑一个（下拉）—— 本文件改不动它，
+  //                    现编一个名字写下去就是一条谁也接不上的引用
+  // 所以它们占同一个槽位、写同一个变量（aliasVal），同一时刻只露一个。
+
+  /**
+   * 摆「键名」下拉。候选 = 参考文件里**这个类**已经有的代号（Refs.aliasesOfClass）。
+   *
+   * 摆不成返回 false（那个来源我们没有数据、或者不知道这条引用指的是哪个类），
+   * 由调用方退回"灰着的输入框 + 一句为什么"—— 那是这一格原先的样子，降级的时候
+   * 它仍然是对的：改不了，但用户得知道为什么。
+   *
+   * cur 不在候选里时**补一条**并标出来。不补的话下拉会自己显示成列表里的第一个，
+   * 等于在屏幕上替用户改了一个他没改过的值（按下去就写这个）—— 而"参考数据比游戏旧"
+   * 和"这个代号拼歪了"两种情况都会让 cur 不在列表里，恰恰是**最该照实显示**的时候。
+   */
+  function fillRefSel(source, objClass, cur) {
+    if (!cur) return false;
+    var Refs = window.ZLevel.Refs;      // 调用时读：数据脚本排在这后面
+    var list = (Refs && Refs.aliasesOfClass) ? Refs.aliasesOfClass(source, objClass) : null;
+    if (!list || !list.length) return false;
+    var extra = list.indexOf(cur) < 0;
+
+    refSel.textContent = '';
+    (extra ? list.concat([cur]) : list).forEach(function (a) {
+      var o = document.createElement('option');
+      o.value = a;
+      o.textContent = (extra && a === cur) ? a + '（参考文件里没有这个代号）' : a;
+      refSel.appendChild(o);
+    });
+    refSel.value = cur;
+
+    aliasLab.textContent = '键名';
+    aliasIn.hidden = true;
+    aliasIn.disabled = true;            // 收起来的那个也要禁用：Enter 提交那条路不看 hidden
+    refSel.hidden = false;
+    return true;
+  }
+
+  /** 这一格退回输入框（本文件的代号 / 摆不成的降级）。disabled 时底下必须有一句为什么。 */
+  function useAliasInput(label, value, disabled, hint) {
+    aliasLab.textContent = label;
+    aliasIn.value = value;
+    aliasIn.disabled = !!disabled;
+    aliasIn.hidden = false;
+    refSel.hidden = true;
+    refSel.textContent = '';
+    setAliasHint(hint || '');
+  }
+
+  /** 下拉里现在有哪些候选 —— 只给 state() 用（自检要断言"列的就是参考文件里那个类的代号"）。 */
+  function refSelOptions() {
+    return Array.prototype.map.call(refSel.options, function (o) { return o.value; });
   }
 
   /**
@@ -1120,34 +1215,47 @@ window.ZEditor.ModulePanel = (function () {
     var isEvent = ui.kind === 'event';
     waveWrap.hidden = !isEvent;
 
-    /* 「代号」那一格。
+    /* 「代号 / 键名」那一格。
      *
      *   模块  露出来，预填元数据里的默认别名。**改了才递下去**（见 doSubmit）——
      *         没改的话走的还是"默认别名 + 去重"那条路，跟这一格出现之前一模一样。
      *   事件  不露。事件的代号是 `Wave<第几波><默认别名><序号>` 拼出来的，改它就得
      *         连带改波次号，那是另一回事（见 Edit.insertEvent）。
      *
-     * 指向**别的文件**的模块（defaultSource 不是 CurrentLevel）这一格是**灰的**：
+     * 指向**别的文件**的模块（defaultSource 不是 CurrentLevel）这一格是**挑**不是**填**：
      * `RTID(代号@LevelModules)` 里那个代号说的是参考文件里那个对象的名字，本文件改不动
-     * 它 —— 改了写下去就是一条谁也接不上的引用。2026-09-22 用户点名的："指向
-     * levelmodules 或其他地方的模块不能重命名代号，因为参考文件是不能被同步改名的"。
-     * 灰着的同时底下必须有一句为什么，否则读起来像功能坏了。
-     * 第二道闸在 Edit.insertModule（接缝不只浮层一个调用方）。
+     * 它，能做的只是从那儿**已经有的**里面挑一个。2026-09-22 用户的原话："在详情页面改
+     * 插入的键名，参考 zeditor 小推车模块的处理" —— zeditor 那个小推车页干的就是这件事
+     * （让人在 24 种小推车里挑，selected 写回 Modules[index]）。
+     *
+     * 这一格**原先是一灰到底的输入框**（用户的上一版口径："指向 levelmodules 或其他地方的
+     * 模块不能重命名代号，因为参考文件是不能被同步改名的"）。那条口径限制的是**改名**
+     * ——自己编一个参考文件里没有的名字；从已有的里面挑一个不在这条限制里，反而正是
+     * 小推车这一档需要的。第二道闸在 Edit.insertModule 的 refAliasKnown（接缝不只浮层
+     * 一个调用方）。
+     *
+     * 降级：那个来源我们没有数据时（Refs.aliasesOfClass 返回 null）摆不出下拉，退回
+     * 灰输入框 + 一句为什么 —— 跟这一格从前一样。
      */
     if (isEvent) {
       aliasWrap.hidden = true;
       aliasOrig = '';
       aliasVal = '';
+      useAliasInput('代号', '', true, '');
     } else {
       aliasOrig = meta.defaultAlias || meta.objClass;
       aliasVal = aliasOrig;
-      aliasIn.value = aliasOrig;
-      var foreign = !!(meta.defaultSource && meta.defaultSource !== 'CurrentLevel');
-      aliasIn.disabled = foreign;
-      setAliasHint(foreign
-        ? '这个模块的对象定义在 ' + meta.defaultSource + ' 里，代号说的也是那个文件里的名字 —— ' +
-          '改了本文件就对不上它，所以这一格改不了'
-        : '');
+      var src = meta.defaultSource || 'CurrentLevel';
+      var foreign = src !== 'CurrentLevel';
+      if (foreign && fillRefSel(src, meta.objClass, aliasOrig)) {
+        setAliasHint('这个模块的对象定义在 ' + src + ' 里（别的文件）—— 插入只给本关卡挂一条引用，' +
+          '这一格就是那条引用指着哪一个代号，只能从那儿已经有的里面挑。');
+      } else {
+        useAliasInput('代号', aliasOrig, foreign, foreign
+          ? '这个模块的对象定义在 ' + src + ' 里，代号说的也是那个文件里的名字 —— ' +
+            '改了本文件就对不上它，所以这一格改不了'
+          : '');
+      }
       aliasWrap.hidden = false;
     }
     var notes = [];
@@ -1236,12 +1344,10 @@ window.ZEditor.ModulePanel = (function () {
     var foreign = !!(rmeta && rmeta.defaultSource && rmeta.defaultSource !== 'CurrentLevel');
     aliasOrig = snap.alias || '';
     aliasVal = aliasOrig;
-    aliasIn.value = aliasOrig;
-    aliasIn.disabled = !aliasOrig || foreign;
     /* 底下那句"改完按保存…" 2026-09-22 用户点名去掉（灰字，跟这一格要做的事重复）。
      * 剩下这两句都**不是**在解释这个框怎么用，是在解释它为什么是灰的 —— 删了用户
      * 会以为功能坏了。 */
-    setAliasHint(foreign
+    useAliasInput('代号', aliasOrig, !aliasOrig || foreign, foreign
       ? '这个对象属于「' + rmeta.title + '」—— 那个模块的引用指向 ' + rmeta.defaultSource +
         '（别的文件），代号改不了'
       : (aliasOrig ? '' : '这个对象没有别名，改不了代号 —— 要加别名得到文本里写'));
@@ -1272,6 +1378,72 @@ window.ZEditor.ModulePanel = (function () {
       keysHead: '这个对象的参数（' + (d.rows.length - absent) + ' 个键，改完按保存）',
       btnLabel: '保存'
     });
+  }
+
+  /**
+   * 详情页**第三档**：`Modules` 里那条**已经挂着**的外部引用，换一个指向。
+   *
+   * 「改参数」那一档管不着它：那个对象不在本文件里，没有 objdata 可列（`docOf` 的
+   * defaultSource 闸门就是拦这个的）。而它又确实有**一件**能改的事 —— 这条引用指着
+   * 参考文件里的哪一个代号。对象树上那一行原先只有"点行跳文本"，这一档就是给它补上
+   * 那件能改的事（2026-09-22 用户：树上加 ✎ 开详情页改键名）。
+   *
+   * 跟插入那一档只用一格的差别：那一格是**新**引用挑一个名字，这里是**旧**引用换一个。
+   * 判据、候选、写回的那条路是同一套（Edit.retargetModuleRef 跟 Edit.insertModule
+   * 共用 refAliasKnown）。
+   *
+   * @param {Object} item { rtid, alias, source, objClass } —— outline.external 的一行
+   */
+  function renderRef(item) {
+    ui.objClass = item.objClass || item.alias;
+    waveWrap.hidden = true;
+
+    var src = item.source;
+    aliasOrig = item.alias;
+    aliasVal = aliasOrig;
+    /* 摆不出下拉（这个类在参考文件里查不到代号）就退回灰输入框 + 一句为什么。
+     * 树上那个 ✎ 只在查得到类名时才画（见 tree.js 的 extLeaf），所以走到这儿
+     * 基本都是摆得成的 —— 但这一格**不能**假设调用方守规矩。 */
+    if (!fillRefSel(src, item.objClass, aliasOrig)) {
+      useAliasInput('键名', aliasOrig, true,
+        '「' + aliasOrig + '」在 ' + src + ' 里查不到，看不出这条引用指的是哪个类 —— ' +
+        '先到文本里把这个代号改对，这里就能挑了');
+    } else {
+      setAliasHint('候选是 ' + src + ' 里 ' + item.objClass + ' 已经有的代号 —— ' +
+        '换完文本里那条 RTID 跟着变，可以撤销。');
+    }
+    aliasWrap.hidden = false;
+
+    paint({
+      mode: 'ref',
+      desc: '对象在 ' + src + ' 里（别的文件），本文件改不了它 —— 能改的只有这条引用指着哪一个代号。',
+      rows: [],
+      title: item.objClass,
+      sub: '改键名  ·  ' + item.rtid,
+      btnLabel: '改键名'
+    });
+  }
+
+  /**
+   * 开「改键名」那一档 —— 对象树「引用」那一行尾的 ✎ 走这儿。
+   *
+   * @param {Object} item { rtid, alias, source, objClass }
+   * @param {HTMLElement} entry 触发它的那个 ✎，关的时候把焦点还给它
+   */
+  function openRef(item, entry) {
+    if (!item || !item.rtid || !item.objClass) return;
+    ui.kind = 'module';                 // 没有"插到第几波"这回事，跟 openObject 同一条
+    ui.mode = 'ref';
+    editId = null;
+    begin(entry);
+    /* 认人凭据是 **(代号, 来源)**，不是对象也不是位置 —— 要改的是 Modules 里的一串文本，
+     * 位置会随文本改动漂移（见 Edit.retargetModuleRef）。
+     *
+     * ⚠ 必须在 begin() **之后**赋值：begin 是"每次开都清空上一次"的地方（refId = null
+     * 就在里面），先赋就被它清掉了 —— 症状是「改键名」按下去一点动静都没有，
+     * 因为 doRetarget 第一句就是 `if (!refId) return`。 */
+    refId = { rtid: item.rtid, source: item.source, alias: item.alias };
+    renderRef(item);
   }
 
   /**
@@ -1319,12 +1491,16 @@ window.ZEditor.ModulePanel = (function () {
     edits = {};
     badKey = null;
     badMsg = '';
-    /* 代号那一格也清空。renderDetail / renderObject 会紧接着把值填上；留在这儿是为了
-     * 两档互相切换时不会带着上一个模块/对象的代号值（切过去的那一档如果没填，
-     * 显示的就是上一档的名字）。 */
+    refId = null;
+    /* 代号那一格也清空。renderDetail / renderObject / renderRef 会紧接着把值填上；
+     * 留在这儿是为了三档互相切换时不会带着上一个模块/对象的代号值（切过去的那一档
+     * 如果没填，显示的就是上一档的名字）。**两个控件一起清** —— 上一档留下的是下拉的话，
+     * 不清就会在"新的一档只有输入框"时还露着上一次的候选。 */
     aliasOrig = '';
     aliasVal = '';
-    if (aliasIn) { aliasIn.value = ''; aliasIn.disabled = false; }
+    if (aliasIn) { aliasIn.value = ''; aliasIn.disabled = false; aliasIn.hidden = false; }
+    if (refSel) { refSel.textContent = ''; refSel.hidden = true; }
+    if (aliasLab) aliasLab.textContent = '代号';
     if (aliasHint) setAliasHint('');
     say('');
     modal.hidden = false;
@@ -1368,6 +1544,7 @@ window.ZEditor.ModulePanel = (function () {
     if (!ui.open) return;
 
     if (ui.mode === 'edit') return doSave();
+    if (ui.mode === 'ref') return doRetarget();
 
     var meta = currentMeta();
     if (!meta) return;
@@ -1422,6 +1599,21 @@ window.ZEditor.ModulePanel = (function () {
     closeOverlay();
   }
 
+  /**
+   * 按「改键名」（引用那一档）。
+   *
+   * 只递两样：**旧 RTID** 和新代号。来源不在参数里 —— 新代号拼进 `RTID(新代号@来源)` 时
+   * 用的是旧 RTID 里那一段（见 Edit.retargetModuleRef，那里写着为什么不能像 zeditor
+   * 那样把来源重新拼一遍）。
+   */
+  function doRetarget() {
+    if (!refId) return;
+    if (!aliasChanged()) { say('键名没改'); return; }
+    var r = ctxRef.onRetargetRef(refId.rtid, aliasVal.trim());
+    if (!r || !r.ok) { say((r && r.reason) || '改不了这个键名'); return; }
+    closeOverlay();
+  }
+
   /** 浮层正开着的那个模块的元数据。按 objClass 现去表里找 —— 存 meta 引用的话，
    *  数据表重建过之后浮层还捏着旧对象。 */
   function currentMeta() {
@@ -1439,14 +1631,15 @@ window.ZEditor.ModulePanel = (function () {
   /**
    * 建面板。**幂等** —— 切页签每次都会调，只有第一次真建。
    * @param {HTMLElement} hostEl  #panel-modules
-   * @param {Object} ctx  { onInsertModule(meta, values),
+   * @param {Object} ctx  { onInsertModule(meta, values, newAlias),
    *                        onInsertEvent(meta, waveIndex, values),
-   *                        onSaveObject(id, values, newAlias), onWaveCount(),
+   *                        onSaveObject(id, values, newAlias),
+   *                        onRetargetRef(oldRtid, newAlias), onWaveCount(),
    *                        onHasClass(objClass), onModuleExists(meta), onOpen() }
    *   接缝都在 main.js 那一侧：toast 是那个文件的模块私有函数，面板够不到；
-   *   onWaveCount / onHasClass / onModuleExists / onSaveObject 要读当前关卡
-   *   （面板不该自己去 state.get()）。
-   *   onInsert* / onSaveObject 返回 {ok, reason} —— ok 决定浮层关不关，
+   *   onWaveCount / onHasClass / onModuleExists / onSaveObject / onRetargetRef 要读
+   *   当前关卡（面板不该自己去 state.get()）。
+   *   onInsert* / onSaveObject / onRetargetRef 返回 {ok, reason} —— ok 决定浮层关不关，
    *   reason 是给用户看的那句话。newAlias 没改代号时是 null（见 doSave）。
    */
   function ensure(hostEl, ctx) {
@@ -1464,6 +1657,8 @@ window.ZEditor.ModulePanel = (function () {
     ensure: ensure,
     /* 对象树上那个 ✎ 走这儿开**改参数**那一档（见 openObject）。 */
     openObject: openObject,
+    /* 「引用」那一行尾的 ✎ 走这儿开**改键名**那一档（见 openRef）。 */
+    openRef: openRef,
     /* 给自检用的只读快照。不是为了调试方便 —— check-boot 要断言
      * 「点一行开的是这个模块、浮层里画出了键表、点插入之后浮层关掉了」，它得能问出
      * "现在开着的是哪一个、键表走的是哪一档"，而不是靠读 DOM 里的 .mdl-krow 个数
@@ -1490,16 +1685,24 @@ window.ZEditor.ModulePanel = (function () {
         /* 这次按下去会写什么：插入是整棵 objdata，改参数只含改动过的键。 */
         values: lastRows.length ? collect() : null,
         badKey: badKey,
-        /* 代号那一格（插入 / 改参数两档都有，事件那一档没有）。自检要断言"改了代号
-         * 之后按保存，文本里那个对象的别名和指向它的键都变了"，而它不能去 DOM 里
-         * 读输入框。 */
+        /* 代号那一格（插入 / 改参数两档都有，事件那一档没有；引用那一档叫「键名」）。
+         * 自检要断言"改了代号之后按保存，文本里那个对象的别名和指向它的键都变了"，
+         * 而它不能去 DOM 里读输入框。 */
         alias: {
           orig: aliasOrig,
           val: aliasVal,
           changed: aliasChanged(),
           bad: aliasBadMsg(),
           shown: !!(aliasWrap && !aliasWrap.hidden),
-          disabled: !!(aliasIn && aliasIn.disabled)
+          /* 这一格现在改不改得动。**带下拉那一档是能改的** —— 它原先是一灰到底的
+           * 输入框（外部模块不许改代号），自检那时候拿这条断言过"改不了"。
+           * 2026-09-22 起外部引用能从参考文件已有的代号里挑一个，这条跟着说真话
+           * （见 renderDetail 那段）。 */
+          disabled: aliasIn ? (aliasIn.hidden ? false : !!aliasIn.disabled) : true,
+          /* 「键名」下拉摆上了没有、里面有哪些候选。自检要断言"列出来的就是参考文件里
+           * 那个类的代号"，而不是去 DOM 里数 <option> —— 数得出来但看不出是哪一批。 */
+          picker: !!(refSel && !refSel.hidden),
+          options: (refSel && !refSel.hidden) ? refSelOptions() : []
         }
       };
     }

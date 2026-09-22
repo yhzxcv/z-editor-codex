@@ -157,7 +157,11 @@ window.ZLevel.Outline = (function () {
    * objClass 纯粹是**显示用**的（树上那一行左边那格，跟本地模块的行对齐），
    * 所以查法比 Parse 那边宽：按 aliases 里**任意一个**匹配，而 classifyRef 只认
    * 首别名。两边口径不一致是**有意的** —— 这里是"这个别名在这个参考文件里是什么类"，
-   * 查不到最坏也就是显示成别名，不会污染任何判定。
+   * 查不到最坏也就是显示成别名，不会污染任何判定。（参考数据里每个对象只有一个别名，
+   * 所以这一宽一窄眼下落在同一批名字上，见 refs.js 的 classOfAlias。）
+   *
+   * 这个类名现在还多了个用处：树上那个 ✎ 用它列候选（「键名」下拉只在这个类的代号里
+   * 挑），所以查不到类的那些行**不画 ✎** —— 见 tree.js 的 extLeaf。
    *
    * refs 的三种传法跟 build() 完全一样（见那段注释）：省略取全局、明确传 null 一律不查。
    */
@@ -182,17 +186,18 @@ window.ZLevel.Outline = (function () {
     return out;
   }
 
-  /** 这个别名在参考文件的这个来源里是什么类。查不到（没数据 / 没这个别名）返回 null。 */
+  /**
+   * 这个别名在参考文件的这个来源里是什么类。查不到（没数据 / 没这个别名）返回 null。
+   *
+   * 查本身走 Refs 那一份（js/level/refs.js 的 classOfAliasIn）—— 「这个别名在参考文件
+   * 里是什么类」只该有一处实现，模块浮层那格「键名」也要问同一个问题。这里的 table 参数
+   * 只用来判**要不要查**：明确传 null 就是"一律不查"（build 的 refs 三种传法，见那段注释）。
+   */
   function classInSource(alias, source, table) {
-    var objs = (table && table.objectsOf) ? table.objectsOf(source) : null;
-    if (!Array.isArray(objs)) return null;
-    for (var i = 0; i < objs.length; i++) {
-      var o = objs[i];
-      if (o && Array.isArray(o.aliases) && o.aliases.indexOf(alias) >= 0) {
-        return Parse.objClassOf(o) || null;
-      }
-    }
-    return null;
+    if (!table || !table.objectsOf) return null;
+    var Refs = window.ZLevel.Refs;
+    if (!Refs || !Refs.classOfAliasIn) return null;
+    return Refs.classOfAliasIn(table.objectsOf(source), alias);
   }
 
   /**

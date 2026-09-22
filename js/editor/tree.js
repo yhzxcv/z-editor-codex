@@ -122,18 +122,24 @@ window.ZEditor.Tree = (function () {
    * 而注册表只认识它收了的那些别名）。一份关卡挂了哪些模块，用户除了翻文本没别的办法
    * 看见，而文本里那串 RTID 恰恰是最难读的东西。
    *
-   * 跟本地模块行的**区别就一处**：没有 ✎。参数在别的文件里，本文件能改的只有那一行
-   * RTID 文本 —— 画一个"点了没反应"或"改了不生效"的按钮比不画糟。这句解释挂在
-   * 行和「引用」标记的 title 上，不占版面（段底灰字用户见一次删一次，见 section 那段）。
+   * 跟本地模块行的区别：**参数没有**（对象在别的文件里），但**有一件事能改** —— 这条
+   * 引用指着参考文件里的哪一个代号。所以 ✎ 有，开的是另一档（module-panel 的 renderRef：
+   * 一屏没有键表的详情，只有那一格「键名」下拉）。2026-09-22 用户的口径是「树上加 ✎」，
+   * 样板是 zeditor 的小推车页：那一页就是让人在 24 种小推车里挑一个。
+   *
+   * **查不到类名时不画 ✎**（`item.objClass` 为空）：候选是"这个类在那个来源里已经有的
+   * 代号"，不知道类就列不出候选，画出来的按钮点开是一格灰输入框 —— 画一个点了没反应的
+   * 按钮比不画糟（跟 leaf 里 onEdit 那条同一个理由）。那种行仍然**照样列**（见
+   * externalModules 那段），它落进「失效引用」那一段，入口在那边。
    *
    * 点行跳文本（跟「失效引用」那些行同一个约定）：`obj: null` 让 main.js 的
    * revealObject 落到 revealOrWarn 上，拿整串 RTID 去文本里找。
    */
-  function extLeaf(item, onPick) {
+  function extLeaf(item, onPick, onEdit) {
     var row = el('div', 'node');
     var go = el('button', 'node-go');
     go.type = 'button';
-    go.title = item.rtid + '\n对象定义在 ' + item.source + ' 里（别的文件），本文件里没有它的数据，没有可改的参数'
+    go.title = item.rtid + '\n对象定义在 ' + item.source + ' 里（别的文件），本文件里没有它的数据'
       + '\n点击跳到文本里的位置';
     /* 类名查得到就显示类名（跟上面那些本地模块的行对齐，扫一眼看得出是同类东西）；
      * 查不到（参考数据比游戏旧、或者这个别名干脆是拼错的）退成别名 —— 但**照样列**，
@@ -141,12 +147,23 @@ window.ZEditor.Tree = (function () {
     go.appendChild(el('span', 'node-cls', item.objClass || item.alias));
     go.appendChild(el('span', 'node-alias', item.alias));
     var tag = el('span', 'tag tag-ref', '引用');
-    tag.title = '对象在别的文件（' + item.source + '）里，没有可改的参数';
+    tag.title = '对象在别的文件（' + item.source + '）里，参数改不了 —— 能改的是这条引用指着哪个代号';
     go.appendChild(tag);
     go.addEventListener('click', function () {
       onPick({ alias: item.rtid, objclass: item.objClass || '', obj: null });
     });
     row.appendChild(go);
+
+    if (onEdit && item.objClass) {
+      var ed = iconBtn('node-edit', 'pencil', '改键名',
+        '改这条引用指着的键名 —— 从 ' + item.source + ' 里 ' + item.objClass + ' 已经有的代号里挑一个');
+      ed.addEventListener('click', function (e) {
+        e.stopPropagation();
+        /* 把按钮自己交出去 —— 浮层关掉时焦点还给它（跟 leaf 的 ✎ 同一个约定）。 */
+        onEdit(item, ed);
+      });
+      row.appendChild(ed);
+    }
     return row;
   }
 
@@ -239,7 +256,7 @@ window.ZEditor.Tree = (function () {
    * @param {Function} onPick 点击节点回调，收到 {obj, objclass, alias}
    * @param {Function} onDelete
    * @param {Object} [rep]   Report.build 的结果里这几项：
-   *                         invalidRefs / conflicts / onCleanup / onEdit
+   *                         invalidRefs / conflicts / onCleanup / onEdit / onEditRef
    *                         （不传就退化成只画树，自检里用得上）
    *
    * onEdit 走 rep 而不是第四个位置参数：它跟 onCleanup 一样是"节点上的一个动作"，
@@ -276,7 +293,7 @@ window.ZEditor.Tree = (function () {
     var ext = outline.external || [];
     host.appendChild(section('mods', '模块', outline.modules.length + ext.length,
       outline.modules.map(function (n) { return leaf(n, onPick, onDelete, onEdit); })
-        .concat(ext.map(function (it) { return extLeaf(it, onPick); })),
+        .concat(ext.map(function (it) { return extLeaf(it, onPick, rep.onEditRef); })),
       { note: (outline.modules.length || ext.length) ? null : '还没插入任何模块' }));
 
     /* 波次管理器 —— 容器和它下面每一波**是一件事**，所以波次嵌在这一段里

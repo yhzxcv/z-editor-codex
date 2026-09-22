@@ -90,5 +90,75 @@ window.ZLevel.Refs = (function () {
     return d ? Object.keys(d).sort() : [];
   }
 
-  return { has: has, aliases: aliases, objectsOf: objectsOf, knownSources: knownSources };
+  /**
+   * 这个别名在这个来源里是**哪个类**的对象。查不到（没数据 / 没这个别名）返回 null。
+   *
+   * 匹配的是 aliases 里**任意一个**，比 aliases() / classifyRef 的"只认首别名"宽 ——
+   * 两边口径不一致是**有意的**：这里的回答是"这一行指的是个什么东西"（显示用），
+   * 查不到最坏也就是退成显示别名，不会污染任何判定。判"这条引用成不成立"仍然只走
+   * classifyRef，别拿本函数去当那个判据。
+   *
+   * 眼下这一宽一窄其实落在同一批名字上：参考数据里 4706 个对象**没有一个**带两个以上
+   * 别名（2026-09-22 六个文件全查过），所以"任意一个"就是"唯一那个"。放宽是为了以后
+   * 真出现多别名时那一行仍然显示得出来，不是眼下有什么名字在靠它。
+   *
+   * 传对象列表的那一份（classOfAliasIn）是给 outline.js 用的 —— 它那份 refs 参数有
+   * "明确传 null = 一律不查"的语义（见 js/level/outline.js 的 build），所以它得自己
+   * 决定要不要查、查哪张表。判据只该有一处实现，所以查本身还是这一份。
+   */
+  function classOfAliasIn(objs, alias) {
+    if (!Array.isArray(objs)) return null;
+    for (var i = 0; i < objs.length; i++) {
+      var o = objs[i];
+      if (o && Array.isArray(o.aliases) && o.aliases.indexOf(alias) >= 0) {
+        return (typeof o.objclass === 'string' && o.objclass) ? o.objclass : null;
+      }
+    }
+    return null;
+  }
+
+  /** classOfAliasIn 的取数版：自己去这个来源的对象列表。 */
+  function classOfAlias(source, alias) {
+    return classOfAliasIn(objectsOf(source), alias);
+  }
+
+  /**
+   * 这个来源里、这个类的对象**能用的代号**有哪些（去重、排序）。没数据的来源返回 null。
+   *
+   * 给"引用型模块换一个指向"那一格用：`RTID(代号@LevelModules)` 里那个代号必须是参考
+   * 文件里**已经存在**的一个名字，编辑器能做的只是让他从这些里挑一个，不能让他现编。
+   *
+   * **只收首别名**，跟 aliases() 同一把尺子 —— 不是随手挑的：判引用成不成立的
+   * Parse.classifyRef 只认首别名，列一条非首别名出来，用户选完那条引用当场被判成
+   * 「参考文件里没有」，对象树上多一条失效引用。**能给用户挑的集合，必须正好是判据认的
+   * 集合。**（眼下每个对象只有一个别名，所以"首别名"就是"那个别名"；跟着 aliases() 走
+   * 是为了这条口径只有一处。）
+   *
+   * 去重是必须的：**同一个别名会被好几个对象用**（LevelModules 361 条 -> 356 个唯一
+   * 首别名，5 个重名），不去重的话下拉里会出现两条一模一样的选项，而"选了哪条"变成随机。
+   *
+   * 类的判据是 objclass 全等：参考文件里每个对象的形状跟关卡对象一样
+   * （objclass / aliases / objdata），同一类的变体是**各自独立的对象**
+   * （LevelModules 里 24 种小推车就是 24 条，每条 aliases 只有一个名字）。
+   */
+  function aliasesOfClass(source, objClass) {
+    var objs = objectsOf(source);
+    if (objs === null) return null;      // 没数据 ≠ 空集，跟 aliases() 同一条
+    var seen = Object.create(null), out = [];
+    objs.forEach(function (o) {
+      if (!o || o.objclass !== objClass) return;
+      var a = o.aliases;
+      if (!Array.isArray(a) || !a.length || typeof a[0] !== 'string') return;
+      if (seen[a[0]]) return;
+      seen[a[0]] = true;
+      out.push(a[0]);
+    });
+    return out.sort();
+  }
+
+  return {
+    has: has, aliases: aliases, objectsOf: objectsOf, knownSources: knownSources,
+    classOfAlias: classOfAlias, classOfAliasIn: classOfAliasIn,
+    aliasesOfClass: aliasesOfClass
+  };
 })();
