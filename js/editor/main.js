@@ -57,9 +57,23 @@
 
     state.subscribe(onStateChange);
     wireTabs();
+    wireIcons();
     wireTopbar();
     wireSettings();
+    wireFontSize();
     wireKeyboard();
+
+    /* 顶栏高度。转屏、拉窗口、以及**手机上地址栏收起**都会改可视宽度 ——
+       顶栏可能因此在一行和两行之间来回切，所以每次都重量一次。
+       跟 --topbar-h 有关的三处（.shell 网格行、三个浮层的 top）都靠它。 */
+    window.addEventListener('resize', syncTopbarH);
+    window.addEventListener('orientationchange', syncTopbarH);
+    /* 字体是异步加载的（system-ui 之外那几档中文回退），换上去之后按钮宽度会变，
+       换行位置也就可能变。load 之后补量一次 —— boot 也可能是 load 之后才跑的
+       （脚本晚到、或者页面已经加载完才注入），那种情况下 load 早就过去了，
+       监听器永远等不到，所以补一次直接调用。 */
+    if (document.readyState === 'complete') syncTopbarH();
+    else window.addEventListener('load', syncTopbarH);
 
     // 没打开文件时给一个能立刻上手的起点：空白关卡模板
     var blank = window.ZLevel.Templates[0];
@@ -396,7 +410,7 @@
    *        当成一次改名，白跑一遍 renameAlias。见面板的 doSave）
    */
   function doSaveObject(id, values, newAlias) {
-    if (!id) return { ok: false, reason: '不知道在改哪个对象，重新点一次 ✎' };
+    if (!id) return { ok: false, reason: '不知道在改哪个对象，重新点一次行尾那个铅笔按钮' };
     if (state.get().parseError) return { ok: false, reason: 'JSON 有语法错误，先修好再改' };
 
     var keys = (values && typeof values === 'object') ? Object.keys(values) : [];
@@ -424,7 +438,7 @@
     if (!r.ok) {
       if (r.error === 'moved') {
         return { ok: false, reason: '文件里第 ' + (id.index + 1) + ' 个对象已经不是「' + id.objclass +
-          '」了（浮层开着的这段时间文本改过）—— 关掉重新点一次 ✎' };
+          '」了（浮层开着的这段时间文本改过）—— 关掉重新点一次行尾那个铅笔按钮' };
       }
       /* 这三条是改名那一路的拒绝（Edit.renameObjectAlias）。reason 是它给的原文，
        * 那句话是照用户填的那个代号写的，比这里重编一句准。 */
@@ -432,7 +446,7 @@
         return { ok: false, reason: r.reason || '这个代号不能用' };
       }
       if (r.error === 'no-object' || r.error === 'not-found') {
-        return { ok: false, reason: '这个对象在文件里找不到了 —— 关掉重新点一次 ✎' };
+        return { ok: false, reason: '这个对象在文件里找不到了 —— 关掉重新点一次行尾那个铅笔按钮' };
       }
       if (r.error === 'no-change') return { ok: false, reason: '一个键都没改' };
       if (r.error === 'parse-error') return { ok: false, reason: 'JSON 有语法错误，先修好再改' };
@@ -878,6 +892,104 @@
     if (v === 'auto') document.documentElement.removeAttribute('data-theme');
     else document.documentElement.setAttribute('data-theme', v);
     if (text) text.reconfigureTheme();
+  }
+
+  // ── 顶栏：图标 / 字号档 / 行高 ──────────────────────────────────────
+  //
+  // 三件事挤在一起是因为它们互相牵连：字号档会改按钮宽度，从而改变顶栏在窄屏
+  // 换不换行；换不换行又决定顶栏实际多高；而顶栏高度同时是网格行高和三个浮层的
+  // top。所以 applyFontSize 末尾要重算一次行高。
+
+  /**
+   * 把顶栏那几个图标按钮的图形填上。
+   *
+   * 形状表在 js/editor/panels.js 的 ICONS 里，全站只有那一份 —— 所以 index.html
+   * 里这几个 <button> 是**空的**，图形在这儿补。空着的那几毫秒看不见：34px 的
+   * 盒子从 HTML 解析出来就在，没有布局跳动；而且这些按钮本来就得等 JS 才有反应。
+   */
+  function wireIcons() {
+    var P = window.ZEditor.Panels;
+    [['btn-menu', 'menu'], ['btn-fs-minus', 'minus'],
+      ['btn-fs-plus', 'plus'], ['btn-settings', 'gear']].forEach(function (pair) {
+      var b = BY_ID(pair[0]);
+      if (b && !b.firstChild) b.appendChild(P.icon(pair[1]));
+    });
+  }
+
+  /* 字号五档。**中档是 'medium'，它在样式表里没有对应的块** —— applyFontSize
+     把属性整个删掉，页面回落到 :root 上那组基准值（桌面 15px/13px、窄屏
+     15px/12.5px）。跟图鉴排列密度那套的 standard 完全一致，好处是桌面现有的
+     字号一个像素都不动，不用去核对两处数值是不是抄对了。
+     ⚠ 顺序即档位顺序，A− / A+ 就是在这上面走一格。档位名要跟样式表里那几个
+     :root[data-fs="…"] 块对得上 —— 对不上不报错，只是那一档静默回落到中档。
+     用户看过之后要的是"范围再大点"：原先小/大两头只差 1.22 倍，手机上最想要
+     的那一头（缩小）下不去；现在是 12~19px，1.58 倍，两头各多一档。 */
+  var FONT_SIZES = ['xs', 'small', 'medium', 'large', 'xl'];
+  var FONT_NAMES = ['最小', '小', '中', '大', '最大'];
+  var FS_KEY = 'zeditor.fontSize';
+
+  function readFontSize() {
+    try {
+      var v = localStorage.getItem(FS_KEY);
+      return FONT_SIZES.indexOf(v) >= 0 ? v : 'medium';
+    } catch (e) { return 'medium'; }        // 隐私模式下 localStorage 会抛
+  }
+
+  function applyFontSize(v) {
+    if (v === 'medium') document.documentElement.removeAttribute('data-fs');
+    else document.documentElement.setAttribute('data-fs', v);
+
+    /* 走到头就置灰而不是绕回另一头：字号是"档位"不是"开关"，循环的话
+       点两下会莫名其妙回到原处，看着像没反应。 */
+    var i = FONT_SIZES.indexOf(v);
+    [['btn-fs-minus', '缩小字号', i <= 0],
+      ['btn-fs-plus', '放大字号', i >= FONT_SIZES.length - 1]].forEach(function (t) {
+      var b = BY_ID(t[0]);
+      b.disabled = t[2];
+      b.title = t[1] + '（当前：' + FONT_NAMES[i] + '）';
+    });
+
+    /* 字号一变，按钮宽度跟着变，顶栏可能从一行变两行（或反过来）—— 行高要重算。
+       同步调用就够了：读 offsetHeight 会强制一次布局，拿到的就是新字号下的值。 */
+    syncTopbarH();
+  }
+
+  function wireFontSize() {
+    var cur = readFontSize();
+    function step(d) {
+      var i = FONT_SIZES.indexOf(cur) + d;
+      if (i < 0 || i >= FONT_SIZES.length) return;
+      cur = FONT_SIZES[i];
+      try { localStorage.setItem(FS_KEY, cur); } catch (e) { /* 存不上不影响本次 */ }
+      applyFontSize(cur);
+    }
+    BY_ID('btn-fs-minus').addEventListener('click', function () { step(-1); });
+    BY_ID('btn-fs-plus').addEventListener('click', function () { step(1); });
+    applyFontSize(cur);                     // 一进来就把上次选的档挂上
+  }
+
+  /**
+   * 量顶栏的实际高度，写回 documentElement 上的 --topbar-h。
+   *
+   * 顶栏在窄屏会换行（.topbar 上那条 flex-wrap），换行之后样式表里那个 50px 的
+   * 初值就不是它的高度了。而 --topbar-h 不只给 .shell 用（那一行已经改成 auto，
+   * 不依赖它），**三个浮层的 top 全在读它** —— 不更新的话，手机上打开模块详情，
+   * 浮层顶上会被顶栏的第二行压住。
+   *
+   * 为什么是"量"而不是"在某个断点写死 92px"：顶栏的最小宽度在 400~460px 之间
+   * 浮动，跟平台上中文字体的度量有关，硬编码的断点正好会在这个区间里猜错 ——
+   * 猜小了照样压，猜大了白留一条缝。量一次就没有这个问题，而且字号档改了宽度
+   * 它也会跟着重算。
+   *
+   * ⚠ 这是全站唯一一处直接写 documentElement.style 的地方，跟图鉴密度档那条
+   * 「不用内联样式」的规矩不冲突：那边换的是**档位**（CSS 里写得出来），
+   * 这里换的是一个**量出来的数**，CSS 里写不出来。
+   */
+  function syncTopbarH() {
+    var bar = document.querySelector('.topbar');
+    if (!bar) return;
+    var h = Math.round(bar.getBoundingClientRect().height);
+    if (h > 0) document.documentElement.style.setProperty('--topbar-h', h + 'px');
   }
 
   // 点空白处收浮层

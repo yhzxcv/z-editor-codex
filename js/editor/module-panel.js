@@ -183,6 +183,8 @@ window.ZEditor.ModulePanel = (function () {
    * panels.js 之后 —— 跟 codex-panel.js 同一个约定，check-editor.js 的早读探测器
    * 会当场报出来（el 是 undefined 时不会报错也不会白屏，直到用户点开浮层才炸）。 */
   var el = window.ZEditor.Panels.el;
+  var icon = window.ZEditor.Panels.icon;
+  var iconBtn = window.ZEditor.Panels.iconBtn;
 
   var built = false;
   var host = null;
@@ -527,8 +529,12 @@ window.ZEditor.ModulePanel = (function () {
       top.appendChild(t);
     }
     /* 得让人看出这一下是**看详情**、不是插入。原先这个按钮点下去东西就进关卡了，
-     * 肌肉记忆会害人，所以行尾明写「详情」。 */
-    top.appendChild(el('span', 'ins-more', '详情 ›'));
+     * 肌肉记忆会害人，所以行尾明写「详情」。
+     * 行尾那个 › 是图标不是字（✎/⚙ 那批一起换的）—— 它跟文字同色同高，
+     * 所以 .ins-more 上要挂一排内联 flex，见 css。 */
+    var more = el('span', 'ins-more', '详情');
+    more.appendChild(icon('right'));
+    top.appendChild(more);
     main.appendChild(top);
 
     main.appendChild(el('div', 'ins-cls', meta.objClass));
@@ -556,7 +562,14 @@ window.ZEditor.ModulePanel = (function () {
     var box = el('div', 'ins-group');
     var head = el('button', 'ins-group-h');
     head.type = 'button';
-    head.appendChild(el('span', 'sec-caret', '▸'));
+    /* 展开状态走 aria-expanded（原先改的就是这个），三角的朝向由 CSS 看属性决定。
+       这组默认是**收着**的，所以初始 'false'。
+       ⚠ 三角必须是 head 的第一个子元素：css 里 `.ins-group-h > span:nth-child(2)`
+       是给标题撑宽度的，挪了位置标题就顶不满。 */
+    head.setAttribute('aria-expanded', 'false');
+    var caret = el('span', 'sec-caret');
+    caret.appendChild(icon('right'));
+    head.appendChild(caret);
     head.appendChild(el('span', null, g.title));
     head.appendChild(el('span', 'sec-count', String(g.items.length)));
     var body = el('div', 'ins-group-b');
@@ -564,7 +577,7 @@ window.ZEditor.ModulePanel = (function () {
     g.items.forEach(function (m) { body.appendChild(row(m, kind)); });
     head.addEventListener('click', function () {
       body.hidden = !body.hidden;
-      head.querySelector('.sec-caret').textContent = body.hidden ? '▸' : '▾';
+      head.setAttribute('aria-expanded', String(!body.hidden));
     });
     box.appendChild(head); box.appendChild(body);
     return box;
@@ -615,9 +628,7 @@ window.ZEditor.ModulePanel = (function () {
     mtitle = el('span', 'mdl-mtitle');
     head.appendChild(mtitle);
     head.appendChild(el('div', 'grow'));
-    var close = el('button', 'mdl-mclose', '✕');
-    close.type = 'button';
-    close.title = '关闭（Esc）';
+    var close = iconBtn('mdl-mclose', 'x', '关闭浮层', '关闭（Esc）');
     close.addEventListener('click', closeOverlay);
     head.appendChild(close);
 
@@ -1025,8 +1036,11 @@ window.ZEditor.ModulePanel = (function () {
 
     var ctl = el('div', 'mdl-kctl');
     ctl.appendChild(el('span', 'tag tag-absent', '这个对象没填'));
-    var add = el('button', 'mdl-add', '＋ 按默认值加上');
+    /* 那个 ＋ 是图标（跟 ✎/⚙ 一起换的），所以按钮里是「图标 + 文字」两截 ——
+       .mdl-add 得挂内联 flex，见 css。 */
+    var add = el('button', 'mdl-add', '按默认值加上');
     add.type = 'button';
+    add.insertBefore(icon('plus'), add.firstChild);
     add.title = '按插入骨架里的默认值加上这个键：' + brief(r.def);
     add.addEventListener('click', function () {
       edits[r.key] = r.def;

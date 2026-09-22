@@ -3045,8 +3045,16 @@ function sweep(panelId, cap, expandSel, firstSel) {
   }
   for (let guard = 0; guard < cap; guard++) {
     if (expandSel) {
+      /* 「收着的才要展开」按 aria-expanded 认，**不按字形认**。
+       *
+       * 原先这儿是 `/▸/.test(h.textContent)`，即"标题里有个 ▸ 就是收着的"。
+       * 2026-09-22 折叠三角从文字字符换成了内联 SVG（☰ ⚙ ✎ 那批一起换的，
+       * 因为字符在不同设备上长得不一样、缺字形时不显示），SVG 没有 textContent，
+       * 这个正则就永远匹配不上 —— 表现是收着的段一个都展不开，后面点名要
+       * .ins-main / .mdl-insert 那几条覆盖断言跟着红，而**真正的折叠功能没坏**。
+       * 换句话说那是一条"判据跟着实现走"的断言，换成属性更结实。 */
       const folded = [...doc.querySelectorAll(panelId + ' ' + expandSel)]
-        .find(h => !seen.has(h) && /▸/.test(h.textContent));
+        .find(h => !seen.has(h) && h.getAttribute('aria-expanded') === 'false');
       if (folded) {
         seen.add(folded);
         hit.push(String(folded.className || folded.tagName));
@@ -3164,7 +3172,8 @@ function sweep(panelId, cap, expandSel, firstSel) {
       id: '.mdl-modal', tab: 1, expand: null,
       pre: function () {
         const head = doc.querySelector('#panel-modules .ins-group-h');
-        if (head && /▸/.test(head.textContent)) click(head, '展开分组');
+        // 同上：折叠状态读 aria-expanded，不读那个已经变成 SVG 的三角
+        if (head && head.getAttribute('aria-expanded') === 'false') click(head, '展开分组');
         const row = doc.querySelector('#panel-modules .ins-group-b .ins-main');
         if (row) click(row, '开模块详情');
       }

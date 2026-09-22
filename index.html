@@ -33,17 +33,27 @@
   </aside>
 
   <div class="shell">
+    <!-- 图标按钮的图形由 js/editor/main.js 在 boot 时填（形状表在 js/editor/panels.js
+         的 ICONS 里，全站只有那一份）—— 所以这几个 <button> 里是空的。
+         它们**不是字符**：原先写的是 ☰ ⚙，在 Android 上会被当 emoji 画成彩色的、
+         缺字形时显示豆腐块，同一份代码在不同设备上长得不一样。见 panels.js 那段。 -->
     <header class="topbar">
-      <button class="icon-btn" id="btn-menu" type="button" aria-label="侧栏">☰</button>
+      <button class="icon-btn" id="btn-menu" type="button" aria-label="侧栏"></button>
       <div class="brand">关卡编辑器</div>
       <div class="doc-name" id="doc-name">未打开文件</div>
       <div class="grow"></div>
-      <button class="btn btn-sm" id="btn-open" type="button">打开</button>
-      <button class="btn btn-sm" id="btn-templates" type="button" aria-haspopup="true">模板</button>
-      <button class="btn btn-sm" id="btn-undo" type="button" disabled>撤销</button>
-      <button class="btn btn-sm" id="btn-redo" type="button" disabled>重做</button>
-      <button class="btn btn-sm btn-primary" id="btn-save" type="button">下载</button>
-      <button class="icon-btn" id="btn-settings" type="button" aria-label="设置" aria-haspopup="true">⚙</button>
+      <button class="icon-btn" id="btn-fs-minus" type="button" aria-label="缩小字号"></button>
+      <button class="icon-btn" id="btn-fs-plus" type="button" aria-label="放大字号"></button>
+      <!-- 一组按钮收在一个盒子里：窄屏换行时**整组一起落到第二行**。
+           不收的话 flex 会按"放得下几个放几个"贪心切，结果是「撤销」单蹦一行。 -->
+      <div class="tb-actions">
+        <button class="btn btn-sm" id="btn-open" type="button">打开</button>
+        <button class="btn btn-sm" id="btn-templates" type="button" aria-haspopup="true">模板</button>
+        <button class="btn btn-sm" id="btn-undo" type="button" disabled>撤销</button>
+        <button class="btn btn-sm" id="btn-redo" type="button" disabled>重做</button>
+        <button class="btn btn-sm btn-primary" id="btn-save" type="button">下载</button>
+        <button class="icon-btn" id="btn-settings" type="button" aria-label="设置" aria-haspopup="true"></button>
+      </div>
     </header>
 
     <main class="main">
@@ -124,8 +134,11 @@
 <script src="js/editor/jsonpos.js"></script>
 <script src="js/editor/state.js"></script>
 <script src="js/editor/text.js"></script>
-<script src="js/editor/tree.js"></script>
+<!-- panels.js 排在 tree.js **前面**：三个使用者在加载期就取 window.ZEditor.Panels
+     （tree.js 取 icon/iconBtn，两个面板取 el）。顺序错了不报错也不白屏 ——
+     只是名字是 undefined，直到用户点开对应页签才炸。see tools/check-editor.js -->
 <script src="js/editor/panels.js"></script>
+<script src="js/editor/tree.js"></script>
 <!-- 两个面板都排在 panels.js 之后：它们在加载期读 window.ZEditor.Panels.el，
      顺序排错会被 check-editor.js 的早读探测器抓住（el 是 undefined，不报错也不白屏，
      直到用户点开那个页签才炸）。 -->

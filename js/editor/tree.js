@@ -37,6 +37,11 @@ window.ZEditor.Tree = (function () {
     return e;
   }
 
+  /* 图标住在 js/editor/panels.js（共用），这里只是取个短名字。panels.js 必须排在
+     本文件前面 —— tools/check-editor.js 有断言钉这个顺序。 */
+  var icon = window.ZEditor.Panels.icon;
+  var iconBtn = window.ZEditor.Panels.iconBtn;
+
   /**
    * 一个可点击的叶节点。
    *
@@ -69,8 +74,9 @@ window.ZEditor.Tree = (function () {
         return '参考文件里没有：' + r.alias + '@' + r.source;
       }));
     if (broken.length) {
-      var w = el('span', 'node-warn', '⚠');
+      var w = el('span', 'node-warn');
       w.title = '这些引用落空了\n' + broken.join('\n');
+      w.appendChild(icon('warn'));
       go.appendChild(w);
     }
     go.addEventListener('click', function () { onPick(node); });
@@ -79,9 +85,8 @@ window.ZEditor.Tree = (function () {
     /* 改参数。onEdit 缺省时（自检里只画树的那种调用）不画这个按钮 ——
      * 画一个点了没反应的按钮比不画糟。 */
     if (onEdit && node.obj) {
-      var ed = el('button', 'node-edit', '✎');
-      ed.type = 'button';
-      ed.title = '改这个对象的参数 —— 弹出它的键表（对着中文说明改，能撤销）';
+      var ed = iconBtn('node-edit', 'pencil', '改参数',
+        '改这个对象的参数 —— 弹出它的键表（对着中文说明改，能撤销）');
       ed.addEventListener('click', function (e) {
         e.stopPropagation();
         /* 把按钮自己交出去 —— 浮层关掉时要把焦点还给它（跟模块详情那条一个约定：
@@ -93,9 +98,7 @@ window.ZEditor.Tree = (function () {
 
     // 根对象（LevelDefinition）不给删 —— 删了整份文件就废了
     if (onDelete && node.obj && node.objclass !== 'LevelDefinition') {
-      var del = el('button', 'node-del', '✕');
-      del.type = 'button';
-      del.title = '删除这个对象';
+      var del = iconBtn('node-del', 'x', '删除这个对象');
       del.addEventListener('click', function (e) {
         e.stopPropagation();
         onDelete(node);
@@ -133,7 +136,13 @@ window.ZEditor.Tree = (function () {
 
     var head = el('button', 'sec-head');
     head.type = 'button';
-    var caret = el('span', 'sec-caret', isOpen ? '▾' : '▸');
+    /* 展开状态走 aria-expanded，**不再改字形**：原先这里在 ▾ / ▸ 之间换 textContent，
+       换成 SVG 之后没有字形可换（而且「哪个字形算展开」本来也不该是测试的判据 ——
+       tools/check-boot.js 的扫雷就是靠正则找 ▸ 才找到折叠段的，见那边的改法）。
+       三角只做一个朝右的，展开时由 CSS 转 90°。 */
+    head.setAttribute('aria-expanded', String(isOpen));
+    var caret = el('span', 'sec-caret');
+    caret.appendChild(icon('right'));
     head.appendChild(caret);
     head.appendChild(el('span', 'sec-title', title));
     if (count != null) head.appendChild(el('span', 'sec-count', String(count)));
@@ -164,7 +173,7 @@ window.ZEditor.Tree = (function () {
     head.addEventListener('click', function () {
       collapsed[key] = isOpen;         // 记成"折叠了"，供下次重绘读取
       isOpen = !isOpen;
-      caret.textContent = isOpen ? '▾' : '▸';
+      head.setAttribute('aria-expanded', String(isOpen));   // 三角的朝向看它
       body.hidden = !isOpen;
       if (note) note.hidden = !isOpen;
       if (action) action.hidden = !isOpen;

@@ -60,6 +60,8 @@ window.ZEditor.CodexPanel = (function () {
   'use strict';
 
   var el = window.ZEditor.Panels.el;
+  var icon = window.ZEditor.Panels.icon;
+  var iconBtn = window.ZEditor.Panels.iconBtn;
 
   /* 长按判定阈值。跟系统"长按弹菜单"的观感对齐；短于这个数是点击。 */
   var HOLD_MS = 500;
@@ -677,7 +679,8 @@ window.ZEditor.CodexPanel = (function () {
 
   function syncFold() {
     if (chlist) chlist.hidden = foldChs;
-    if (foldIco) foldIco.textContent = foldChs ? '▸' : '▾';
+    /* 三角的朝向不用在这儿改了 —— 它由下面那条 aria-expanded 经 CSS 决定
+       （原先这里改的是 foldIco.textContent，换成 SVG 之后没有字形可换）。 */
     if (foldBtn) {
       foldBtn.setAttribute('aria-expanded', foldChs ? 'false' : 'true');
       foldBtn.title = foldChs ? '展开类别列表' : '折叠类别列表';
@@ -734,7 +737,8 @@ window.ZEditor.CodexPanel = (function () {
 
     foldBtn = el('button', 'codex-fold');
     foldBtn.type = 'button';
-    foldIco = el('span', 'sec-caret', foldChs ? '▸' : '▾');
+    foldIco = el('span', 'sec-caret');
+    foldIco.appendChild(icon('right'));
     foldBtn.appendChild(foldIco);
     foldBtn.appendChild(el('span', null, '类别'));
     foldBtn.appendChild(el('span', 'sec-count', String(useChs.length)));
@@ -794,9 +798,7 @@ window.ZEditor.CodexPanel = (function () {
     mtitle = el('span', 'codex-mtitle');
     head.appendChild(mtitle);
     head.appendChild(el('div', 'grow'));
-    mclose = el('button', 'codex-mclose', '✕');
-    mclose.type = 'button';
-    mclose.title = '关闭（Esc）';
+    mclose = iconBtn('codex-mclose', 'x', '关闭浮层', '关闭（Esc）');
     mclose.addEventListener('click', closeOverlay);
     head.appendChild(mclose);
 
