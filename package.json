@@ -9,9 +9,12 @@
     "check": "node tools/check.js && node tools/check-level.js && node tools/check-editor.js",
     "//check-boot": "整页无头跑一遍并真的去点。要 jsdom（devDependency），所以不在 check 里 —— check 必须能在裸 clone 上跑。",
     "check-boot": "node tools/check-boot.js",
+    "//mutate": "变异测试：故意改坏一处源码，要求点名的那条断言变红。改坏的位置对不上代码会直接报错退出，所以它自己不会悄悄失效。",
+    "mutate": "node tools/mutate.js",
     "dev": "python -m http.server 8000"
   },
   "devDependencies": {
+    "@codemirror/commands": "^6.11.1",
     "@codemirror/lang-json": "^6.0.1",
     "@codemirror/lint": "^6.8.4",
     "@codemirror/search": "^6.5.8",

@@ -10,10 +10,20 @@
  *   defaultAlias   插入时的默认别名，也是 RTID(...@...) 里那个
  *   defaultSource  CurrentLevel = 对象写进本文件；LevelModules = 只挂一个引用，不建对象
  *   isCore         核心模块，Z-Editor 的选择器里会标出来
- *   allowMultiple  允许同一关卡里存在多个（否则重复插入会被拒绝）
+ *   allowMultiple  允许同一关卡里存在多个。**true 只是"插几个都正常"，不是"只有它才
+ *                  能插多个"** —— 非核心模块重复插入也允许（别名去重），浮层会提示
+ *                  "两个会相互覆盖"。这里不再有"不许重复"的声明。
  *   showInSelector false 表示 Z-Editor 默认不展示（追击主题配置），这里照样保留
  *
- * objdata 的初始值不在这里，在 data/module-skeletons.js（按 objClass 查）。
+ * 只有「波次容器」那一条用到的（isContainer）：
+ *   isContainer    true = 这一条**不是模块**，是一个装着数据的对象。两个后果：
+ *                  插入时不往 LevelDefinition.Modules 里挂引用（真实关卡里没有谁把
+ *                  它列在 Modules 下），而且一份关卡只允许有一个（它靠波次管理器的
+ *                  WaveManagerProps 键被找到，那个键只指得着第一个）。
+ *
+ * objdata 的初始值不在这里，在 data/module-skeletons.js（按 objClass 查）——
+ * 「波次容器」也在那张表里，只是它那一条是**手工补的**（它不是模块类，生成器不会产出
+ * 它），注意事项写在那个条目头上。
  */
 window.ZLevel = window.ZLevel || {};
 window.ZLevel.Modules = {
@@ -23,6 +33,19 @@ window.ZLevel.Modules = {
         , defaultAlias: 'NewWaves', defaultSource: 'CurrentLevel'
         , desc: '管理关卡的波次事件总配置'
         , isCore: true
+      },
+      /* 波次容器 —— 波次管理器的 WaveManagerProps 键指着它，波次列表（Waves）和
+       * 倒计时那些参数都挂在它身上。真实关卡里它跟波次管理器是一起出现的，
+       * 但它是**另一个对象**，用「波次管理器」那条插不出来（那条只管管理器自己），
+       * 于是这里单列一条 —— 2026-09-22 用户报的：波次管理器插完会指向一个不存在的
+       * 容器，而"没有 ui 入口允许创建波次容器模块"。
+       *
+       * 两条路都通：单插这一条，或者插「波次管理器」时让它顺带建一个（那份关卡一个
+       * 容器都没有时，见 main.js 的 doInsertModule）。 */
+      { objClass: 'WaveManagerProperties', title: '波次容器'
+        , defaultAlias: 'WaveManagerProps', defaultSource: 'CurrentLevel'
+        , desc: '装着波次列表和倒计时参数的对象，波次管理器用 WaveManagerProps 指着它'
+        , isContainer: true
       },
       { objClass: 'CustomLevelModuleProperties', title: '庭院模块'
         , defaultAlias: 'DefaultCustomLevel', defaultSource: 'LevelModules'

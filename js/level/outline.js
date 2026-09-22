@@ -15,7 +15,17 @@
  * 现在两类都走 Parse.classifyRef 一个判据。
  *
  * 判据还跟 Parse.computeReachableObjects 对齐 —— 一个引用算不算「本文件的边」，
- * 两处必须给同一个答案。否则会出现「树上挂着子节点、清理却把它当孤儿删掉」。
+ * 两处必须给同一个答案。否则会出现「树上挂着子节点、清理却把它当孤立模块删掉」。
+ *
+ * 「真失效」的判据是 Parse.classifyRef 的 **missing** 一档：来源是 CurrentLevel / 没有 @，
+ * 而本文件里确实没这个别名。**external-unknown 一律不判**（@SkillTypes 这些来源我们根本
+ * 没有数据，2938 条）—— 那不算"落空了"，算"我们不知道"，收进来就是满屏误报。
+ *
+ * ── 节点级与顶层 ──
+ * nodeOf 是**逐对象**算的（节点级的 dangling / notes，树上的 ⚠ 就是它），build() 收尾时
+ * 两样都汇总进顶层：notes 进 outline.notes、dangling 进 outline.dangling（带上出处）。
+ * 原先只收 notes、不收 dangling，于是对象深处一条落空的 @CurrentLevel 引用进不了
+ * 「失效引用」——用户看到的只是那个对象变成了孤立模块（可达性连带不上）。那是个 bug。
  */
 window.ZLevel = window.ZLevel || {};
 window.ZLevel.Outline = (function () {
@@ -46,8 +56,9 @@ window.ZLevel.Outline = (function () {
   /**
    * 一个对象的显示信息。
    *   refs      它能指向的**本文件**对象别名（用于树上展开子节点）
-   *   dangling  本文件里找不到的别名 —— 真失效，标 ⚠
-   *   notes     外部来源里没有的别名 —— 灰字提示，不算错误（元素是 collectRefs 的引用对象）
+   *   dangling  本文件里找不到的引用 —— 真失效，标 ⚠。元素是 {rtid, alias}，
+   *             由 build() 汇总进顶层的 dangling，并带上这个对象的出处
+   *   notes     外部来源里没有的别名 —— 灰字提示（元素是 collectRefs 的引用对象）
    */
   function nodeOf(obj, ctx) {
     if (!obj) return null;
@@ -59,7 +70,7 @@ window.ZLevel.Outline = (function () {
       /* 指向**已知**外部文件的引用不是本文件的事：不去找同名对象、也不报失效。
        * 这一步跟 computeReachableObjects 的 isKnownExternal 是同一个判断 ——
        * 少了它，`RTID(tutorial@ZombieTypes)` 在本文件恰好也有 tutorial 时
-       * 会挂出一个子节点，而清理那边认为它是孤儿，两边打架。 */
+       * 会挂出一个子节点，而清理那边认为它是孤立模块，两边打架。 */
       if (Parse.isKnownExternal(r, ctx.refs)) {
         if (Parse.classifyRef(r.alias, r.source, ctx.local, ctx.refs) === 'external-typo'
             && !notes.some(function (x) { return x.alias === r.alias; })) notes.push(r);
@@ -70,10 +81,15 @@ window.ZLevel.Outline = (function () {
       if (target) {
         // 引用自己不算数（原来就这样）
         if (target !== obj && refs.indexOf(r.alias) < 0) refs.push(r.alias);
-      } else if (dangling.indexOf(r.alias) < 0) {
-        /* 去重。原来只给 refs 去重、dangling 没去重，于是一个对象里
-         * 同一别名出现两次，⚠ 的悬停提示里就写两遍。 */
-        dangling.push(r.alias);
+      } else if (Parse.classifyRef(r.alias, r.source, ctx.local, ctx.refs) === 'missing'
+                 && !dangling.some(function (x) { return x.alias === r.alias; })) {
+        /* 只收 missing 这一档。走到这里还有另一种引用：来源我们**没有数据**的
+         * （@SkillTypes、@ProjectileTypes……）—— 那种一律不判，见文件头。
+         *
+         * 元素带整串 RTID，是为了让 build() 能按它去重、report.js 能合并出处。
+         * 去重按 alias：同一别名在一个对象里出现两次时，⚠ 的悬停提示会写两遍
+         * （原来只给 refs 去重、dangling 没去重，就是这么写出来的）。 */
+        dangling.push({ rtid: r.full, alias: r.alias });
       }
     });
 
@@ -94,13 +110,18 @@ window.ZLevel.Outline = (function () {
    *   notes  外部来源里没有这个别名（灰字，不算错误）
    *
    * 这里用 Rtid.parse（贪婪版），跟 findInvalidLevelModuleReferences 同口径。
+   *
+   * where 是**出处**（「LevelDefinition.Modules」/「第 3 波」），原样带在 bad 的每一条上。
+   * 调用点早就知道自己解析的是哪个列表，而 report.js 要把 Modules 和每一波的失效引用
+   * 合并成一份给用户看的清单 —— 合并之后「这条是在哪儿烂的」只能靠这里带上，
+   * 事后再去猜是猜不出来的。notes 走的是同一套（addNotes 的 where 参数）。
    */
-  function resolveList(rtids, ctx) {
+  function resolveList(rtids, ctx, where) {
     var objs = [], bad = [], notes = [];
     (Array.isArray(rtids) ? rtids : []).forEach(function (r) {
       if (typeof r !== 'string') return;
       var info = Rtid.parse(r);
-      if (!info) { bad.push({ rtid: r, reason: 'not-rtid' }); return; }
+      if (!info) { bad.push({ rtid: r, reason: 'not-rtid', where: where }); return; }
 
       // 已知外部来源不找本文件的同名对象，跟 nodeOf / 可达性保持一致
       var target = Parse.isKnownExternal(info, ctx.refs) ? undefined : ctx.index[info.alias];
@@ -109,7 +130,7 @@ window.ZLevel.Outline = (function () {
       var kind = Parse.classifyRef(info.alias, info.source, ctx.local, ctx.refs);
       if (kind === 'external' || kind === 'external-unknown') return;   // 在别的文件里 / 那个来源我们没数据
       if (kind === 'external-typo') { notes.push(info); return; }
-      bad.push({ rtid: r, reason: 'missing', alias: info.alias });
+      bad.push({ rtid: r, reason: 'missing', alias: info.alias, where: where });
     });
     return { objs: objs, bad: bad, notes: notes };
   }
@@ -158,7 +179,7 @@ window.ZLevel.Outline = (function () {
     if (root) used.add(root);
 
     // ── 模块 ──
-    var modRes = resolveList(Parse.levelModules(list), ctx);
+    var modRes = resolveList(Parse.levelModules(list), ctx, 'LevelDefinition.Modules');
     modRes.bad.forEach(function (b) { dangling.push(b); });
     addNotes(modRes.notes, 'LevelDefinition.Modules');
     var modules = [];
@@ -176,7 +197,7 @@ window.ZLevel.Outline = (function () {
       waveManager = make(wmObj);
       var rawWaves = (wmObj.objdata && Array.isArray(wmObj.objdata.Waves)) ? wmObj.objdata.Waves : [];
       rawWaves.forEach(function (wave, i) {
-        var res = resolveList(wave, ctx);
+        var res = resolveList(wave, ctx, '第 ' + (i + 1) + ' 波');
         res.bad.forEach(function (b) { dangling.push(b); });
         addNotes(res.notes, '第 ' + (i + 1) + ' 波');
         var items = res.objs.map(function (o) { used.add(o); return make(o); });
@@ -188,10 +209,10 @@ window.ZLevel.Outline = (function () {
     //
     // 「挂在关卡结构上」（模块 / 波次）只是**直接**归属，不代表全部有用对象。
     // 僵尸类型、属性表、障碍物定义这些东西不在 Modules 也不在 Waves 里，
-    // 它们是**被别的对象引用**才有意义的。如果把它们和真孤儿混作一谈，
+    // 它们是**被别的对象引用**才有意义的。如果把它们和真孤立模块混作一谈，
     // 真实关卡里这一栏会塞满合法对象，用户就再也找不到真正没用的那几个了。
     //
-    // 所以这里用可达性（跟校验层的孤儿检测同一个口径）再切一刀：
+    // 所以这里用可达性（跟校验层的孤立模块检测同一个口径）再切一刀：
     //   supporting —— 从 LevelDefinition 可达，但不直接挂在模块/波次上
     //   orphans    —— 从 LevelDefinition 根本走不到，真正的废数据
     var reachable = Parse.computeReachableObjects(list, refs);
@@ -203,14 +224,27 @@ window.ZLevel.Outline = (function () {
       else orphans.push(node);
     });
 
-    // 对象 objdata 里的灰字提示也汇总进来（Modules/Waves 那两处上面已经收过）
+    /* 对象 objdata 里的坏引用也汇总进来（Modules/Waves 那两处上面已经收过）：
+     *   n.dangling  本文件里找不到 —— 真失效，进顶层的 dangling
+     *   n.notes     参考文件里没有这个别名 —— 灰字那一档
+     * 少了 n.dangling 这一支就是用户报的那个 bug：对象深处一条 @CurrentLevel 的引用
+     * 落空，顶层一点动静都没有，只有那个对象连带不上、变成孤立模块。 */
     var rootNode = root ? make(root) : null;
     nodes.forEach(function (n) {
+      var owner = n.alias || n.objclass;
+      n.dangling.forEach(function (d) {
+        /* 按整串 RTID 去重，跟下面 notes 那条同一个道理。resolveList 先跑，
+         * 所以 Modules / 波次里已经报过的那条**出处更准**，以列表为准；
+         * 对象深处那一处仍然会在它自己那个节点的 ⚠ 上标出来
+         * （node.dangling 是逐对象的，没被这里吃掉）。 */
+        if (dangling.some(function (x) { return x.rtid === d.rtid; })) return;
+        dangling.push({ rtid: d.rtid, alias: d.alias, reason: 'missing', where: owner });
+      });
       n.notes.forEach(function (info) {
         if (notes.some(function (x) { return x.rtid === info.full; })) return;
         notes.push({
           rtid: info.full, alias: info.alias, source: info.source,
-          where: n.alias || n.objclass
+          where: owner
         });
       });
     });

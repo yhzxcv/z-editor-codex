@@ -1,10 +1,27 @@
 /* 对象树 —— 左侧栏的「对象」页
  *
  * 画的不是 JSON 的嵌套结构（那跟文本编辑器没区别），而是**关卡的层次**：
- * 关卡定义 / 模块 / 波次 / 支撑对象 / 未引用。用户在找"第 8 波那个裂缝事件"时
- * 是照这个层次找的，不是照 objdata 的嵌套找的。层次怎么切见 js/level/outline.js。
+ * 关卡定义 / 模块 / 波次管理器（容器 + 它下面每一波）/ 支撑对象 / 孤立模块。
+ * 用户在找"第 8 波那个裂缝事件"时是照这个层次找的，不是照 objdata 的嵌套找的。
+ * 层次怎么切见 js/level/outline.js。
+ *
+ * 每一波**嵌在波次管理器那一段里**（2026-09-22 用户要的），不是跟它平级的顶层段落 ——
+ * 它们本来就是同一个对象的 `Waves` 数组切出来的，分两处看要上下找。
  *
  * 点击节点 -> 编辑器跳到那个对象的别名（找不到就退而求其次找 objclass）。
+ *
+ * ── 校验也在这儿 ──
+ *
+ * 原先「校验」是侧栏的第三个页签，五张卡片里有三张（孤立模块 / 失效引用 /
+ * 参考文件里没有）跟这棵树**原样重复**，而且卡片那版不能点、不能跳文本。
+ * 那份重复连同两个集合的被重复计数一起删掉了：现在一件事只在这棵树上出现一次，
+ * 校验页独有的一条（模块冲突）补成了下面的一段，「清理孤立模块」按钮挂到了
+ * 孤立模块段的标题下面。判定与合并见 js/level/report.js。
+ *
+ * 后来「参考文件里没有」那一段也没了：用户要求这个判定也划进失效引用，于是它
+ * 从独立一段并进了「失效引用」，两档的区分落在**行上那个代号的提示（title）**里
+ * （2026-09-22 又改了一次：行内那个词和段落底下那段灰字说明一起去掉 —— 这一段现在
+ * 只有"哪个代号坏了"和"它出现在哪儿"）。
  */
 window.ZEditor = window.ZEditor || {};
 window.ZEditor.Tree = (function () {
@@ -23,35 +40,56 @@ window.ZEditor.Tree = (function () {
   /**
    * 一个可点击的叶节点。
    *
-   * 整行是"跳到文本"，删除是行内一个单独的 ✕（默认隐藏，悬停或聚焦才出现）。
-   * 删除按钮不能嵌在跳转按钮里（button 套 button 是非法 HTML），所以行本身是
-   * 一个 div，里面放两个并列的 button。
+   * 整行是"跳到文本"，✎ 是"改这个对象的参数"，删除是行内一个单独的 ✕。
+   * 两个按钮都不能嵌在跳转按钮里（button 套 button 是非法 HTML），所以行本身是
+   * 一个 div，里面放三个并列的 button。
+   *
+   * ✎ 跟 ✕ 一样平时淡淡的（.node-edit），悬停才实起来 —— 一行上三个按钮，
+   * 全都实心的话这棵树就没法读了。但**不藏**（✕ 是 opacity:0）：跳转和改参数
+   * 是两件平级的事，用户得看得见改参数这个入口在哪儿。
    */
-  function leaf(node, onPick, onDelete) {
+  function leaf(node, onPick, onDelete, onEdit) {
     var row = el('div', 'node');
     var go = el('button', 'node-go');
     go.type = 'button';
     go.title = node.objclass + (node.alias ? '  ·  ' + node.alias : '') + '\n点击跳到文本里的位置';
     go.appendChild(el('span', 'node-cls', node.objclass));
     if (node.alias) go.appendChild(el('span', 'node-alias', node.alias));
-    /* 引用了**本文件里**找不到的别名 -> 标黄。这是最常见的手改错误。
-     * 注意这里只说本文件：指向 @LevelModules / @ZombieTypes 这些外部文件的引用
-     * 不在本文件里本来就不算错，它们由下面的灰点表示。 */
-    if (node.dangling && node.dangling.length) {
+    /* 这个对象身上有解不开的引用 -> 标 ⚠。两档合成一个标记：
+     *   dangling  本文件里找不到（最常见的手改错误）
+     *   notes     参考文件里没有这个别名
+     * 两档都进「失效引用」那一段（见 js/level/report.js），所以这里也共用一个
+     * 标记 —— 分两个符号（⚠ 和灰点）是旧口径留下的，那会儿灰点"不算错误"。
+     * 提示里仍然分开说，因为给用户的信息不一样：一个是"你写错了名字"，
+     * 另一个还留着"参考数据比游戏旧"的余地。
+     * 两档现在都汇总进顶层的 dangling/notes（见 js/level/outline.js 的 build），
+     * 所以这个 ⚠ 和下面「失效引用」那一段是同一份数据、同一个数。 */
+    var broken = (node.dangling || []).map(function (d) { return '本文件里找不到：' + d.alias; })
+      .concat((node.notes || []).map(function (r) {
+        return '参考文件里没有：' + r.alias + '@' + r.source;
+      }));
+    if (broken.length) {
       var w = el('span', 'node-warn', '⚠');
-      w.title = '引用了本文件里找不到的别名：' + node.dangling.join('、');
+      w.title = '这些引用落空了\n' + broken.join('\n');
       go.appendChild(w);
-    }
-    /* 外部来源里没有这个别名 -> 灰点。可能拼错，也可能是我们的参考数据比游戏旧，
-     * 从这份文件分不出是哪种，所以只提示、不算错误（见 js/level/outline.js）。 */
-    if (node.notes && node.notes.length) {
-      var g = el('span', 'node-note', '·');
-      g.title = '指向的参考文件里没有这些别名（可能拼错了）：'
-        + node.notes.map(function (r) { return r.alias + '@' + r.source; }).join('、');
-      go.appendChild(g);
     }
     go.addEventListener('click', function () { onPick(node); });
     row.appendChild(go);
+
+    /* 改参数。onEdit 缺省时（自检里只画树的那种调用）不画这个按钮 ——
+     * 画一个点了没反应的按钮比不画糟。 */
+    if (onEdit && node.obj) {
+      var ed = el('button', 'node-edit', '✎');
+      ed.type = 'button';
+      ed.title = '改这个对象的参数 —— 弹出它的键表（对着中文说明改，能撤销）';
+      ed.addEventListener('click', function (e) {
+        e.stopPropagation();
+        /* 把按钮自己交出去 —— 浮层关掉时要把焦点还给它（跟模块详情那条一个约定：
+         * 焦点不能丢回 <body>，键盘用户会一下子不知道自己在哪）。 */
+        onEdit(node, ed);
+      });
+      row.appendChild(ed);
+    }
 
     // 根对象（LevelDefinition）不给删 —— 删了整份文件就废了
     if (onDelete && node.obj && node.objclass !== 'LevelDefinition') {
@@ -67,11 +105,31 @@ window.ZEditor.Tree = (function () {
     return row;
   }
 
-  /** 可折叠的一段。count 为 0 时默认收起，免得空段落占版面。 */
+  /**
+   * 可折叠的一段。count 为 0 时默认收起，免得空段落占版面。
+   *
+   * opts.note 是段落底下的一句灰字。⚠ **默认不要写** —— 用户 2026-09-22 反复删的就是
+   * 这种东西：段标题/按钮已经把那件事说过了，底下再用灰字说一遍，他看见一次删一次
+   * （「孤立模块」「模块冲突」「支撑对象」三段的都删了）。到那天为止全树**只剩一个**
+   * 合法的用法：Modules 空着时的「还没插入任何模块」—— 它回答的是"这儿为什么什么都
+   * 没有"，是**空态说明**，跟标题不重复。有额外信息优先塞进行/控件的 `title`。
+   *
+   * opts.action 是段尾的一个按钮（现在只有孤立模块段的「清理」）。它跟 note
+   * 一样跟着段落收放 —— 收着的时候露一个能改文档的按钮，比不显示更糟。
+   *
+   * opts.sub 是**嵌在别的段里**的那种（波次管理器里的每一波）。它自带缩进和竖线，
+   * 不然只是右边缩几像素，看不出"它在那个段落里面"。
+   * opts.open 是无视 `count > 0` 那条默认、一开始就展开（只有波次管理器用：它
+   * 里面装着整个波次列表，默认收着等于把波次全藏起来 —— 以前那些波次是顶层段落、
+   * 默认展开的）。
+   */
   function section(key, title, count, children, opts) {
     opts = opts || {};
-    var box = el('div', 'sec' + (opts.tone ? ' sec-' + opts.tone : ''));
-    var isOpen = collapsed[key] === undefined ? (count > 0) : !collapsed[key];
+    var box = el('div', 'sec' + (opts.tone ? ' sec-' + opts.tone : '')
+      + (opts.sub ? ' sec-sub' : ''));
+    var isOpen = collapsed[key] === undefined
+      ? (opts.open === true || count > 0)
+      : !collapsed[key];
 
     var head = el('button', 'sec-head');
     head.type = 'button';
@@ -94,15 +152,33 @@ window.ZEditor.Tree = (function () {
       box.appendChild(note);
     }
 
+    // 段尾的动作按钮同理：收着的时候不该露出来
+    var action = null;
+    if (opts.action) {
+      action = el('div', 'sec-action');
+      action.appendChild(opts.action);
+      action.hidden = !isOpen;
+      box.appendChild(action);
+    }
+
     head.addEventListener('click', function () {
       collapsed[key] = isOpen;         // 记成"折叠了"，供下次重绘读取
       isOpen = !isOpen;
       caret.textContent = isOpen ? '▾' : '▸';
       body.hidden = !isOpen;
       if (note) note.hidden = !isOpen;
+      if (action) action.hidden = !isOpen;
     });
 
     return box;
+  }
+
+  /** 「清理这 N 个孤立模块」。文案里带数字，是因为点了就真删对象，得说清删几个。 */
+  function cleanupBtn(count, onCleanup) {
+    var b = el('button', 'btn btn-fix', '清理这 ' + count + ' 个孤立模块');
+    b.type = 'button';
+    b.addEventListener('click', onCleanup);
+    return b;
   }
 
   /**
@@ -110,8 +186,17 @@ window.ZEditor.Tree = (function () {
    * @param {HTMLElement} host
    * @param {Object} outline  Outline.build 的结果
    * @param {Function} onPick 点击节点回调，收到 {obj, objclass, alias}
+   * @param {Function} onDelete
+   * @param {Object} [rep]   Report.build 的结果里这几项：
+   *                         invalidRefs / conflicts / onCleanup / onEdit
+   *                         （不传就退化成只画树，自检里用得上）
+   *
+   * onEdit 走 rep 而不是第四个位置参数：它跟 onCleanup 一样是"节点上的一个动作"，
+   * 而 onPick / onDelete 那两个位置参数是这份文件的元老，动它们要改所有调用处。
    */
-  function render(host, outline, onPick, onDelete) {
+  function render(host, outline, onPick, onDelete, rep) {
+    rep = rep || {};
+    var onEdit = rep.onEdit;
     host.textContent = '';
 
     if (!outline.root) {
@@ -124,74 +209,111 @@ window.ZEditor.Tree = (function () {
       host.appendChild(empty);
       if (outline.total) {
         host.appendChild(section('raw', '全部对象', outline.total,
-          outline.orphans.concat(outline.supporting).map(function (n) { return leaf(n, onPick, onDelete); })));
+          outline.orphans.concat(outline.supporting).map(function (n) { return leaf(n, onPick, onDelete, onEdit); })));
       }
       return;
     }
 
     // 关卡定义
     host.appendChild(section('root', '关卡定义', null,
-      [leaf(outline.root, onPick, onDelete)]));
+      [leaf(outline.root, onPick, onDelete, onEdit)]));
 
     // 模块
     host.appendChild(section('mods', '模块', outline.modules.length,
-      outline.modules.map(function (n) { return leaf(n, onPick, onDelete); }),
+      outline.modules.map(function (n) { return leaf(n, onPick, onDelete, onEdit); }),
       { note: outline.modules.length ? null : '还没插入任何模块' }));
 
-    // 波次管理器本体
+    /* 波次管理器 —— 容器和它下面每一波**是一件事**，所以波次嵌在这一段里
+     * （2026-09-22 用户：「对象菜单里各个波次做成可折叠状态放在波次管理器次级菜单里」）。
+     * 以前每一波是顶层段落，跟管理器段平级：看第 8 波有什么事件要上下找两处，
+     * 而它们本来就是同一个对象（容器）的 `Waves` 数组切出来的。
+     *
+     * 嵌进来之后**每一波仍然各自可折叠**（key 还是 'wave1'…，折叠状态照旧跨重绘保留），
+     * 只是从"平级的一段"变成"管理器里的一个子项"。 */
     if (outline.waveManager) {
-      host.appendChild(section('wm', '波次管理器', null,
-        [leaf(outline.waveManager, onPick, onDelete)]));
+      var wmItems = [leaf(outline.waveManager, onPick, onDelete, onEdit)];
+      outline.waves.forEach(function (w) {
+        wmItems.push(section('wave' + w.index, '第 ' + w.index + ' 波', w.items.length,
+          w.items.map(function (n) { return leaf(n, onPick, onDelete, onEdit); }),
+          { sub: true }));
+      });
+      host.appendChild(section('wm', '波次管理器', null, wmItems, { open: true }));
     }
-
-    // 每一波
-    outline.waves.forEach(function (w) {
-      host.appendChild(section('wave' + w.index, '第 ' + w.index + ' 波', w.items.length,
-        w.items.map(function (n) { return leaf(n, onPick, onDelete); })));
-    });
 
     // 支撑对象：被引用但不是模块/波次（僵尸类型、属性表……）
     if (outline.supporting.length) {
+      /* 这一段原先底下一句灰字「被别的对象引用，所以不能删」。2026-09-22 用户点名去掉。
+       *
+       * 顺带记一笔：那句话**本来就不对**。`leaf()` 只在 `LevelDefinition` 上才收起 ✕，
+       * 这一段的每一行都带删除按钮，按下走 main.js 的 `doDeleteObject` 照删不误（它只会
+       * 先提示一句"连带会清掉 N 个因此失去引用的对象"）。想删是允许的，那句"不能删"
+       * 是在替用户做主张。去掉之后这一段就不用 `opts` 了，第四个参数整个省掉。 */
       host.appendChild(section('support', '支撑对象', outline.supporting.length,
-        outline.supporting.map(function (n) { return leaf(n, onPick, onDelete); }),
-        { note: '被别的对象引用，所以不能删' }));
+        outline.supporting.map(function (n) { return leaf(n, onPick, onDelete, onEdit); })));
     }
 
-    // 真孤儿
-    host.appendChild(section('orphan', '未引用', outline.orphans.length,
-      outline.orphans.map(function (n) { return leaf(n, onPick, onDelete); }),
+    /* 真孤立模块。清理按钮从「校验」页搬到了这里 —— 它清理的东西就是这一段，
+     * 按钮跟它要动的那些行待在一起，比隔一个页签强。 */
+    var orphanCount = outline.orphans.length;
+    host.appendChild(section('orphan', '孤立模块', orphanCount,
+      outline.orphans.map(function (n) { return leaf(n, onPick, onDelete, onEdit); }),
       {
-        tone: outline.orphans.length ? 'warn' : null,
-        note: outline.orphans.length ? '没有任何对象引用它们，可以在「校验」页一键清理' : null
+        tone: orphanCount ? 'warn' : null,
+        /* 这儿原先还有一句灰字「没有任何对象引用它们，可以一键清理」。
+         * 2026-09-22 用户点名去掉（跟「模块冲突」那句一起）：段标题就叫「孤立模块」、
+         * 底下那个按钮本身就写着「清理这 N 个孤立模块」，那句话是把同一件事说第三遍。 */
+        action: (orphanCount && rep.onCleanup) ? cleanupBtn(orphanCount, rep.onCleanup) : null
       }));
 
-    // 悬空引用 —— 指向本文件的引用解不开，是真问题
-    if (outline.dangling.length) {
-      var items = outline.dangling.map(function (d) {
+    /* 失效引用 —— 合并之后的那一份（见 js/level/report.js）。
+     *
+     * 行上只留**失效的那个代号**（红字）和它出现在哪儿。这一条是"本文件里找不到"
+     * 还是"参考文件里没有"退进 title 里：用户在这一段要找的是"哪个名字坏了"，
+     * 中间再插一个词，扫一列名字的时候全是噪音。（原先那两档是行内的一个词 + 段落
+     * 底下的一段灰字说明，2026-09-22 用户点名一起去掉。）
+     *
+     * 范围比原先树上那段大两轮：以前这里只有「Modules 和每一波里解不开的引用」，
+     * Modules 里 @LevelModules 查不到的别名归「校验」页单独报（那边叫"悬空的
+     * RTID 引用"），而「参考文件里没有」另是一段灰字。现在三处是一条清单。 */
+    var bad = rep.invalidRefs || [];
+    if (bad.length) {
+      var items = bad.map(function (r) {
         var e = el('div', 'node node-bad');
-        e.appendChild(el('span', 'node-cls', d.alias || d.rtid));
-        e.appendChild(el('span', 'node-alias', '找不到'));
-        e.addEventListener('click', function () { onPick({ alias: d.rtid, objclass: '', obj: null }); });
+        var main = el('span', 'node-cls', r.alias || r.rtid);
+        main.title = r.rtid + '\n' + (r.kind === 'alias-typo'
+          ? '参考文件里没有这个别名（可能拼错了，也可能参考数据比游戏旧）'
+          : '本文件里找不到这个别名');
+        e.appendChild(main);
+        if (r.wheres && r.wheres.length) {
+          e.appendChild(el('span', 'node-where', r.wheres.join('、')));
+        }
+        e.addEventListener('click', function () { onPick({ alias: r.rtid, objclass: '', obj: null }); });
         return e;
       });
-      host.appendChild(section('dangling', '失效引用', outline.dangling.length, items,
-        { tone: 'warn', note: '写的是 @CurrentLevel（或不写来源），但本文件里没有这个对象' }));
+      host.appendChild(section('dangling', '失效引用', bad.length, items, { tone: 'bad' }));
     }
 
-    /* 外部来源里没有这个别名 —— 灰字，不是问题。
-     * 跟上面那段分开，是因为两者的确定性不一样：本文件里找不到就是找不到；
-     * 而外部文件我们只有一份快照，可能是拼错、也可能是快照比游戏旧。 */
-    if (outline.notes.length) {
-      var notes = outline.notes.map(function (n) {
-        var e = el('div', 'node node-dim');
-        e.appendChild(el('span', 'node-cls', n.alias));
-        e.appendChild(el('span', 'node-alias', n.source || ''));
-        if (n.where) e.appendChild(el('span', 'node-where', n.where));
-        e.addEventListener('click', function () { onPick({ alias: n.rtid, objclass: '', obj: null }); });
+    /* 模块冲突 —— 原先只有「校验」页有，是那边独有的内容，所以补成树上的一段。
+     * tone 用 bad：冲突的模块同时生效时行为是未定义的，不是"可能拼错了"。
+     * 没有活按钮可给：冲突得人来决定留哪个，自动挑一个删掉是替用户做主张。
+     *
+     * 段落底下原先还有一句灰字「这些模块同时挂上时行为是未定义的，得决定留哪个」，
+     * 2026-09-22 用户点名去掉（跟「孤立模块」那句一起）：段标题就叫「模块冲突」、
+     * 整段又是红的，那句话是把同一件事再说一遍。上面这条注释留着 —— 它是 tone
+     * 选 bad 的**理由**，跟那句话在不在没关系。 */
+    var conf = rep.conflicts || [];
+    if (conf.length) {
+      var hitItems = conf.map(function (h) {
+        /* `node-conf` 是给 CSS 的钩子：这一档要**上下两行**摆（类名一行、人话一行），
+         * 不能跟别的行一样横着排 —— 详见 app.css 里 `.node-conf` 那段。
+         * 行上没有点击动作（冲突得人来决定留哪个），所以整行挂 title 补全。 */
+        var e = el('div', 'node node-bad node-conf');
+        e.title = h.classes.join(' + ') + '\n' + h.description;
+        e.appendChild(el('span', 'node-cls', h.classes.join(' + ')));
+        e.appendChild(el('span', 'node-alias', h.description));
         return e;
       });
-      host.appendChild(section('notes', '参考文件里没有', outline.notes.length, notes,
-        { tone: 'dim', note: '可能拼错了，也可能参考数据比游戏旧；不算错误' }));
+      host.appendChild(section('conflicts', '模块冲突', conf.length, hitItems, { tone: 'bad' }));
     }
   }
 

@@ -8,16 +8,23 @@
  * 这样用户打字打到一半（JSON 暂时不合法）时树不会整个塌掉，
  * 但所有结构操作会被拒 —— 那才是安全的做法。
  *
- * ── 结构操作的撤销 ──
- * 结构操作（插入模块/事件、删对象、清孤儿）绕过 CodeMirror 直接换文本，
- * 所以 CM 自己的撤销栈管不到它们。这里另存一个文本快照栈补上。
+ * ── 撤销/重做不在这里 ──
+ * 这套代码原来自己攒一个文本快照栈（undoStack），因为结构操作绕过 CodeMirror
+ * 直接换文本、CM 的撤销栈管不到它们。现在改成**结构操作也走 CM 的历史**
+ * （见 js/editor/text.js 的 setText），全站只剩一套历史，快照栈就删掉了。
+ *
+ * 这里留下的唯一痕迹是 emit 的 reason：界面要知道这次变化是**谁**造成的，
+ * 才能决定怎么把它写回编辑器 —— 载入要清空历史、结构操作要自成一步、
+ * 打字则什么都不用做（编辑器本来就是改动源头）。
+ * 用参数传而不是记在 s 上：s 是共享的，markSaved() 这类"发个通知但没改文本"
+ * 的路径会让记上去的 reason 变馊。
  */
 window.ZEditor = window.ZEditor || {};
 window.ZEditor.State = (function () {
   'use strict';
 
-  var MAX_UNDO = 50;
-  var UNDO_LABEL = { insert: '插入', delete: '删除', cleanup: '清理' };
+  /** 结构操作的内部代号 -> 给用户看的名字。 */
+  var OP_LABEL = { insert: '插入', delete: '删除', cleanup: '清理', update: '改参数' };
 
   function create() {
     var listeners = [];
@@ -29,8 +36,7 @@ window.ZEditor.State = (function () {
       /** 发生过结构操作 —— 数字写法可能已被规范化 */
       normalized: false,
       /** 文件是从磁盘读的还是从模板载入的（决定"保存"是下载还是覆盖提示） */
-      source: '',
-      undoStack: []
+      source: ''
     };
 
     /**
@@ -38,12 +44,20 @@ window.ZEditor.State = (function () {
      *
      * 传出去的是**纯数据记录**（`s` 本身），它上面只有 fileName / text /
      * objects / parseError / normalized / source —— **没有任何方法**。
-     * 订阅者要用 canUndo() / undo() 这些，得去调 create() 返回的那个对象。
+     * 订阅者要用别的东西，得去调 create() 返回的那个对象。
      *
      * 这条分界踩过一次：renderStatus 里写了 `s.canUndo()`，抛异常，
      * 连带它后面的三个面板全画不出来，表现是"页面在、点谁都没反应"。
+     *
+     * reason 是这次变化的原因，label 只在 reason 为 'structural' 时有值：
+     *   'load'        载入新文档      -> 编辑器整篇重置，清空撤销历史
+     *   'structural'  结构操作        -> 整篇替换但保住历史，自成一步
+     *   'edit'        用户打字        -> 编辑器是源头，一般什么都不用做
+     *   'save'        只是刷新界面    -> 文本没变
      */
-    function emit() { listeners.forEach(function (fn) { fn(s); }); }
+    function emit(reason, label) {
+      listeners.forEach(function (fn) { fn(s, reason, label); });
+    }
 
     function parseInto(text) {
       try {
@@ -97,72 +111,53 @@ window.ZEditor.State = (function () {
 
       subscribe: function (fn) { listeners.push(fn); },
 
-      /** 用户在编辑器里打字。不碰撤销栈（那是结构操作专用的）。 */
+      /** 用户在编辑器里打字。打字的历史由 CodeMirror 自己记，这里只更新派生数据。 */
       setText: function (text) {
         s.text = text;
         parseInto(text);
-        emit();
+        emit('edit');
       },
 
       /**
        * 载入一份新文档（打开文件 / 选模板）。
-       * 换文档会清空撤销栈 —— 上一个文件的快照对新文件没有意义。
+       * reason 是 'load'：界面据此**清空编辑器的撤销历史** ——
+       * 上一个文件的快照对新文件没有意义，不该还能撤销回去。
        */
       load: function (text, fileName, source) {
         s.text = text;
         s.fileName = fileName || '';
         s.source = source || '';
         s.normalized = false;
-        s.undoStack.length = 0;
         parseInto(text);
-        emit();
+        emit('load');
       },
 
       /**
        * 结构操作：拿一份新的对象列表，序列化回文本。
        *
-       * 调用方（main.js / 各结构操作）只管改对象，快照压栈和写回都在这里。
+       * 调用方（main.js / 各结构操作）只管改对象，序列化和通知都在这里。
+       * 不再拍快照 —— 上一个状态已经在 CodeMirror 的历史里了；这里只把
+       * 操作名交出去，界面拿它当这次撤销的提示语。
        * 返回是否成功 —— 解析都不通过时拒绝执行，免得把半截文本序列化成
        * 一个"合法但不是用户想要"的文件。
        */
       applyStructural: function (mutate, label) {
         if (s.parseError) return { ok: false, error: 'parse-error' };
 
-        var snapshot = s.text;
         var doc = JSON.parse(s.text);
         var result = mutate(doc.objects, doc);
         if (result && result.ok === false) return result;   // 操作自己拒绝了，别动文本
 
         var next = window.ZEditor.Text.stringify(doc);
-        s.undoStack.push({ text: snapshot, label: label || '修改' });
-        if (s.undoStack.length > MAX_UNDO) s.undoStack.shift();
-
         s.text = next;
         s.normalized = true;
         parseInto(next);
-        emit();
+        emit('structural', OP_LABEL[label] || label || '修改');
         return result || { ok: true };
       },
 
-      canUndo: function () { return s.undoStack.length > 0; },
-      undoLabel: function () {
-        var top = s.undoStack[s.undoStack.length - 1];
-        return top ? (UNDO_LABEL[top.label] || top.label) : '';
-      },
-
-      undo: function () {
-        var snap = s.undoStack.pop();
-        if (!snap) return false;
-        s.text = snap.text;
-        parseInto(s.text);
-        // 撤销回快照后，之前的结构操作可能全部回退了；保守起见保留 normalized 标记，
-        // 因为只要这一轮里发生过规范化，文本就已经不是原始字节了
-        emit();
-        return true;
-      },
-
-      /** 保存成功后复位"已规范化"提示。 */
-      markSaved: function () { emit(); }
+      /** 保存成功后复位"已规范化"提示。文本没变，只是让状态栏重画一遍。 */
+      markSaved: function () { emit('save'); }
     };
   }
 

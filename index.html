@@ -11,39 +11,48 @@
 </head>
 <body>
 
+<!-- 两列：侧栏占左边一整列，从顶上一直到底（顶上不留顶栏那道空白）；
+     右边 .shell 才是 topbar / 编辑区 / 状态栏那一摞。 -->
 <div class="app">
 
-  <header class="topbar">
-    <button class="icon-btn" id="btn-menu" type="button" aria-label="侧栏">☰</button>
-    <div class="brand">关卡编辑器</div>
-    <div class="doc-name" id="doc-name">未打开文件</div>
-    <div class="grow"></div>
-    <button class="btn btn-sm" id="btn-open" type="button">打开</button>
-    <button class="btn btn-sm" id="btn-templates" type="button" aria-haspopup="true">模板</button>
-    <button class="btn btn-sm" id="btn-undo" type="button" hidden>撤销</button>
-    <button class="btn btn-sm btn-primary" id="btn-save" type="button">下载</button>
-    <button class="icon-btn" id="btn-settings" type="button" aria-label="设置" aria-haspopup="true">⚙</button>
-  </header>
+  <aside class="sidebar" id="sidebar" aria-label="对象、模块与图鉴">
+    <nav class="tabs">
+      <button type="button" data-tab="tree" class="on">对象</button>
+      <button type="button" data-tab="modules">模块</button>
+      <button type="button" data-tab="codex">图鉴</button>
+    </nav>
+    <!-- 汇总条和树是两个并列的静态容器：.tabpanel 是全站唯一的滚动容器，
+         它俩得共处一个滚动上下文；分成两层是为了让 Tree.render 开头的
+         host.textContent = '' 只清树自己，不会把汇总条一起清掉。 -->
+    <div class="tabpanel" id="panel-tree">
+      <div id="sum" hidden></div>
+      <div id="tree-host"></div>
+    </div>
+    <div class="tabpanel" id="panel-modules" hidden></div>
+    <div class="tabpanel" id="panel-codex" hidden></div>
+  </aside>
 
-  <div class="body">
-    <aside class="sidebar" id="sidebar" aria-label="对象与插入">
-      <nav class="tabs">
-        <button type="button" data-tab="tree" class="on">对象</button>
-        <button type="button" data-tab="insert">插入</button>
-        <button type="button" data-tab="check">校验</button>
-      </nav>
-      <div class="tabpanel" id="panel-tree"></div>
-      <div class="tabpanel" id="panel-insert" hidden></div>
-      <div class="tabpanel" id="panel-check" hidden></div>
-    </aside>
+  <div class="shell">
+    <header class="topbar">
+      <button class="icon-btn" id="btn-menu" type="button" aria-label="侧栏">☰</button>
+      <div class="brand">关卡编辑器</div>
+      <div class="doc-name" id="doc-name">未打开文件</div>
+      <div class="grow"></div>
+      <button class="btn btn-sm" id="btn-open" type="button">打开</button>
+      <button class="btn btn-sm" id="btn-templates" type="button" aria-haspopup="true">模板</button>
+      <button class="btn btn-sm" id="btn-undo" type="button" disabled>撤销</button>
+      <button class="btn btn-sm" id="btn-redo" type="button" disabled>重做</button>
+      <button class="btn btn-sm btn-primary" id="btn-save" type="button">下载</button>
+      <button class="icon-btn" id="btn-settings" type="button" aria-label="设置" aria-haspopup="true">⚙</button>
+    </header>
 
     <main class="main">
       <div class="errbar" id="errbar" hidden></div>
       <div class="editor" id="editor"></div>
     </main>
-  </div>
 
-  <footer class="statusbar" id="statusbar"></footer>
+    <footer class="statusbar" id="statusbar"></footer>
+  </div>
 </div>
 
 <div class="scrim" id="scrim" hidden></div>
@@ -76,13 +85,16 @@
 <script src="js/level/refs.js"></script>
 <script src="js/level/order.js"></script>
 <script src="js/level/parse.js"></script>
+<script src="js/level/spans.js"></script>
 <script src="js/level/conflicts.js"></script>
 <script src="js/level/edit.js"></script>
 <script src="js/level/outline.js"></script>
+<script src="js/level/report.js"></script>
 
 <!-- 编辑器数据 -->
 <script src="data/modules.js"></script>
 <script src="data/module-skeletons.js"></script>
+<script src="data/module-docs.js"></script>
 <script src="data/templates.js"></script>
 
 <!-- 外部参考文件（tools/gen-refs.mjs 生成，共 7.4 MB）
@@ -114,6 +126,11 @@
 <script src="js/editor/text.js"></script>
 <script src="js/editor/tree.js"></script>
 <script src="js/editor/panels.js"></script>
+<!-- 两个面板都排在 panels.js 之后：它们在加载期读 window.ZEditor.Panels.el，
+     顺序排错会被 check-editor.js 的早读探测器抓住（el 是 undefined，不报错也不白屏，
+     直到用户点开那个页签才炸）。 -->
+<script src="js/editor/module-panel.js"></script>
+<script src="js/editor/codex-panel.js"></script>
 <script src="js/editor/main.js"></script>
 </body>
 </html>

@@ -17,9 +17,11 @@ require(path.join(ROOT, 'js/level/rtid.js'));
 require(path.join(ROOT, 'js/level/refs.js'));
 require(path.join(ROOT, 'js/level/order.js'));
 require(path.join(ROOT, 'js/level/parse.js'));
+require(path.join(ROOT, 'js/level/spans.js'));
 require(path.join(ROOT, 'js/level/conflicts.js'));
 require(path.join(ROOT, 'js/level/edit.js'));
 require(path.join(ROOT, 'js/level/outline.js'));
+require(path.join(ROOT, 'js/level/report.js'));
 require(path.join(ROOT, 'data/modules.js'));
 require(path.join(ROOT, 'data/module-skeletons.js'));
 require(path.join(ROOT, 'data/templates.js'));
@@ -30,7 +32,7 @@ require(path.join(ROOT, 'data/templates.js'));
 const REF_SOURCES = ['GridItemTypes', 'LevelModules', 'PlantTypes', 'PropertySheets', 'ZombieActions', 'ZombieTypes'];
 REF_SOURCES.forEach(s => require(path.join(ROOT, 'reference', s + '.js')));
 
-const { Rtid, Order, Parse, Conflicts, Edit, Outline, Modules, Templates, Refs } = global.ZLevel;
+const { Rtid, Order, Parse, Conflicts, Edit, Outline, Report, Modules, Templates, Refs } = global.ZLevel;
 
 // ── 模板从哪来 ────────────────────────────────────────────────────────
 //
@@ -182,7 +184,7 @@ for (const f of files) {
   // 树结构可用性
   if (!hasRoot) { ok(false, `${f} 有 LevelDefinition`); continue; }
 
-  // 孤儿检测。模板 8 是**唯一**一个自带孤儿的：tutorial_2 这个僵尸变体在文件里
+  // 孤立模块检测。模板 8 是**唯一**一个自带孤立模块的：tutorial_2 这个僵尸变体在文件里
   // 只出现一次（它自己的别名声明），从未被任何对象引用；tutorial_props_2 又只被
   // tutorial_2 引用。所以这两个对象是真的失效 —— 检测挑出来的正好是它们，
   // 说明可达性分析是准的（这条曾被我误判成 Z-Editor 的 bug，查证后是模板自带示例）。
@@ -190,9 +192,9 @@ for (const f of files) {
   const expectOrphan = (f === '8.自定义僵尸示例.json');
   if (expectOrphan) {
     const got = orphans.map(o => Parse.objClassOf(o)).sort().join(',');
-    ok(got === 'ZombiePropertySheet,ZombieType', `${f} 恰好 2 个真孤儿（模板自带未引用示例）`, got);
+    ok(got === 'ZombiePropertySheet,ZombieType', `${f} 恰好 2 个真孤立模块（模板自带的示例）`, got);
   } else {
-    ok(orphans.length === 0, `${f} 无孤儿对象`,
+    ok(orphans.length === 0, `${f} 无孤立模块`,
       orphans.length ? orphans.map(o => Parse.objClassOf(o)).join(',') : `${objs.length} 个对象`);
   }
 }
@@ -257,6 +259,105 @@ console.log('\n往返（解析 -> 排序 -> 序列化）');
   ok(numOnly === 2, `仅数字写法的正好 2 个（7 僵王战、8 自定义僵尸）`, String(numOnly));
   // 模板 3 是唯一自带乱序的，这条同时钉住"重排是它、且只有它"
   ok(reordered === 1, `排序重排的正好 1 个（3 传送带）`, String(reordered));
+}
+
+// ── 对象区间（点树上的一行该跳到哪儿）────────────────────────────────────
+/* js/level/spans.js 从文本里扫出每个顶层对象的区间。它撑的是"跳转"那条路：
+ * 界面上点一个对象，光标要落在**那个对象**身上。
+ *
+ * 这里比的是**两个来源**：我的扫描器给的区间，跟引擎 JSON.parse 出来的对象。
+ * 逐个元素 `JSON.parse(文本.slice(区间))` 必须正好等于解析出来的第 i 个对象 ——
+ * 区间偏一个字符、少一个括号、被字符串里的 } 带偏，都会当场露馅。
+ * 自己跟自己比（区间对区间）是验不出东西的。 */
+console.log('\n对象区间');
+const { Spans } = global.ZLevel;
+
+/** 返回问题清单（空 = 全部对得上）。抽成纯函数是为了能拿假数据逼它红。 */
+function spanProblems(text, objs, ranges) {
+  const out = [];
+  if (!Array.isArray(ranges)) { out.push('扫不出区间（返回的不是数组）'); return out; }
+  if (ranges.length !== objs.length) {
+    out.push(`区间个数 ${ranges.length} 与对象个数 ${objs.length} 对不上`);
+    return out;
+  }
+  ranges.forEach((r, i) => {
+    let got;
+    try { got = JSON.parse(text.slice(r.from, r.to)); }
+    catch (e) { out.push(`第 ${i} 个区间切出来的不是 JSON：${e.message}`); return; }
+    if (JSON.stringify(got) !== JSON.stringify(objs[i])) {
+      out.push(`第 ${i} 个区间指到了别的对象（${(got && got.objclass) || typeof got}）`);
+    }
+  });
+  return out;
+}
+
+{
+  const bad = [];
+  for (const f of files) {
+    const text = fs.readFileSync(path.join(TEMPLATE_DIR, f), 'utf8');
+    const doc = JSON.parse(text);
+    const objs = Parse.sanitizeLevelObjects(doc.objects);
+    const probs = spanProblems(text, objs, Spans.objectRanges(text));
+    if (probs.length) bad.push(`${f}: ${probs[0]}`);
+  }
+  ok(bad.length === 0, `9 份模板逐个对象：区间切出来正好是那个对象（${files.length} 份里 ${files.length - bad.length} 份全对）`,
+    bad.join(' | '));
+}
+
+/* 用户报的那个毛病本身：名字先以**别的身份**在文件里出现过。
+ * 一份"名字撞车"的文件，那个模块的别名同时是
+ *   ① 上层对象里一个值（"Name"）② 一条 @CurrentLevel 引用的一部分
+ * 按名字搜会落在 ① 上，按结构跳必须落在对象上。 */
+{
+  const objs = [
+    { objclass: 'LevelDefinition', objdata: { Modules: ['WidgetProps@CurrentLevel'], Name: 'WidgetProps' } },
+    { objclass: 'WidgetProps', objdata: { alias: 'WidgetProps', Count: 3 } }
+  ];
+  const text = JSON.stringify({ objects: objs }, null, 2);
+  const ranges = Spans.objectRanges(text);
+  ok(spanProblems(text, objs, ranges).length === 0,
+    '名字撞车时，区间仍然切得出那个对象');
+  const firstHit = text.indexOf('"WidgetProps"');
+  ok(ranges && firstHit >= 0 && firstHit < ranges[1].from,
+    '（前提）按名字搜确实会先中别处 —— 这条不成立的话上面那条就没在测东西',
+    `首次出现 ${firstHit}，对象本体从 ${ranges && ranges[1].from} 开始`);
+  ok(ranges && ranges[1].from <= text.indexOf('"objclass": "WidgetProps"'),
+    '第 2 个区间从它自己的 { 开始，不是从名字第一次出现的地方');
+}
+
+/* 转义：`"` 前面有个反斜杠时，那个引号不是收尾的引号。这类扫描器最经典的错法。
+ *
+ * 那串注释是**挑过的**：里面既有转义引号、又有一个 `}`。少了那个 `}` 就照不出错来 ——
+ * 探针实测（把 `i += 2` 改成 `i++` 造一个坏版扫描器）：'say "hi" } and [1,2]' 那种
+ * 形状下坏版"碰巧"还是对的，得是 `}` 夹在两个转义引号中间才必然错位（坏版要么给出
+ * 错的区间，要么直接放弃返回 null）。这条断言必须挑得住那个错，否则它就是摆设。 */
+{
+  const objs = [
+    { objclass: 'A', objdata: { Note: 'a " } " b' } },
+    { objclass: 'B', objdata: {} }
+  ];
+  const text = JSON.stringify({ objects: objs }, null, 2);
+  ok(spanProblems(text, objs, Spans.objectRanges(text)).length === 0,
+    '字符串里的引号（转义的）和括号不参与计数 —— 区间没错位');
+}
+
+/* 闸门自验：给它一个**故意指错**的区间，它必须报。不报就说明上面那几条
+ * 是"怎么都对"，等于没验。 */
+{
+  const text = JSON.stringify({ objects: [{ objclass: 'A' }, { objclass: 'B' }] }, null, 2);
+  const objs = JSON.parse(text).objects;
+  const right = Spans.objectRanges(text);
+  ok(spanProblems(text, objs, right).length === 0, '（闸门自验）区间对时不报');
+  ok(spanProblems(text, objs, [{ from: right[0].from, to: right[0].to },
+    { from: right[0].from, to: right[0].to }]).length > 0,
+  '（闸门自验）第 2 个区间指到第 1 个对象上：报');
+  ok(spanProblems(text, objs, [{ from: right[0].from, to: right[0].to - 1 },
+    right[1]]).length > 0, '（闸门自验）少一个字符：报');
+  ok(spanProblems(text, objs, Spans.objectRanges('{"objects": [}')).length > 0,
+    '（闸门自验）文本是坏的：扫不出区间，报');
+  ok(Spans.objectRanges('{"objects": []}').length === 0, '空 objects 给出空区间表（不是 null）');
+  ok(Spans.objectRanges('[{"objclass": "A"}]').length === 1, '根是裸数组也认');
+  ok(Spans.objectRanges('{"other": 1}') === null, '找不到 objects 返回 null（调用方那时退回按名字搜）');
 }
 
 // ── 冲突规则 ──────────────────────────────────────────────────────────
@@ -412,18 +513,18 @@ const modOf = cls => {
   const r = Edit.removeObject(objs, wmObj);
   ok(r.removed === wmObj, '目标对象被删除');
   ok(r.cascaded.length > 0, '级联清掉了失去引用的对象', String(r.cascaded.length));
-  ok(Parse.findOrphanedObjects(objs).length === 0, '删完后没有残留孤儿');
+  ok(Parse.findOrphanedObjects(objs).length === 0, '删完后没有残留孤立模块');
   ok(Parse.levelModules(objs).indexOf('RTID(NewWaves@CurrentLevel)') >= 0,
     'Modules 里的引用不因级联被改（引用本身是悬空的，由校验层报出）');
 }
 
 {
-  // 清孤儿：模板 8 自带 2 个真孤儿
+  // 清孤立模块：模板 8 自带 2 个真孤立模块
   const doc = readTemplate('8.自定义僵尸示例.json');
   const objs = doc.objects;
   const before = objs.length;
   const removed = Edit.cleanupOrphaned(objs);
-  ok(removed.length === 2, '模板 8 清掉 2 个孤儿', String(removed.length));
+  ok(removed.length === 2, '模板 8 清掉 2 个孤立模块', String(removed.length));
   ok(objs.length === before - 2, '对象数相应减少');
   ok(Edit.cleanupOrphaned(objs).length === 0, '再清一次无事发生（幂等）');
 }
@@ -452,6 +553,92 @@ const modOf = cls => {
 }
 
 {
+  // 只改 @CurrentLevel 的引用 —— 别的来源指的是**别的文件**里的同名对象。
+  //
+  // 这条是**改动过行为**之后补的闸：renameAlias 原先不看来源，`@LevelModules` 一起改。
+  // 那份文件里恰好也有个同名的东西时，改完就把一条本来指得对的引用变成了
+  // "别的文件里不存在的别名" —— 而 @LevelModules 属于外部引用，分类上根本不报，
+  // 屏幕上一点异样都没有。所以这里必须能红。
+  const objs = [
+    { aliases: ['SeedBank'], objclass: 'SeedBankProperties', objdata: {
+      Local: 'RTID(SeedBank@CurrentLevel)',
+      Foreign: 'RTID(SeedBank@LevelModules)'
+    } },
+    { aliases: ['Lvl'], objclass: 'LevelDefinition', objdata: {
+      Modules: ['RTID(SeedBank@CurrentLevel)', 'RTID(SeedBank@LevelModules)']
+    } }
+  ];
+  const r = Edit.renameAlias(objs, 'SeedBank', 'MyBank');
+  ok(r.refs === 2, '只改了本文件那两处（objdata 一处 + Modules 一处）', String(r.refs));
+  ok(objs[0].objdata.Local === 'RTID(MyBank@CurrentLevel)', '本文件引用改成了新代号');
+  ok(objs[0].objdata.Foreign === 'RTID(SeedBank@LevelModules)',
+    '@LevelModules 那处**一个字都没动**（它指的是别的文件里的同名东西）',
+    objs[0].objdata.Foreign);
+  ok(objs[1].objdata.Modules[1] === 'RTID(SeedBank@LevelModules)',
+    'Modules 里的 @LevelModules 也没动', objs[1].objdata.Modules[1]);
+}
+
+{
+  // 对象改名（面板「代号」那一格按保存走的就是 renameObjectAlias）
+  const mk = () => [
+    { aliases: ['Bank'], objclass: 'SeedBankProperties', objdata: {} },
+    { aliases: ['Lvl'], objclass: 'LevelDefinition', objdata: {
+      Modules: ['RTID(Bank@CurrentLevel)']
+    } },
+    { aliases: ['Other'], objclass: 'ZombieProperties', objdata: { Who: 'RTID(Bank@CurrentLevel)' } }
+  ];
+
+  let objs = mk();
+  let r = Edit.renameObjectAlias(objs, objs[0], 'MyBank');
+  ok(r.ok && r.alias === 'MyBank', '改名成功', JSON.stringify(r));
+  ok(objs[0].aliases[0] === 'MyBank', '对象自己的别名改了');
+  ok(objs[1].objdata.Modules[0] === 'RTID(MyBank@CurrentLevel)', 'Modules 里那条引用跟着改');
+  ok(objs[2].objdata.Who === 'RTID(MyBank@CurrentLevel)', '别的对象 objdata 里的引用也跟着改');
+  ok(r.refs === 2, 'refs 报了 2 处', String(r.refs));
+
+  // 撞名：这份文件里已经有对象叫这个名字 -> 拒绝，且**一个字节都没改**
+  objs = mk();
+  const before = JSON.stringify(objs);
+  r = Edit.renameObjectAlias(objs, objs[0], 'Other');
+  ok(r.ok === false && r.error === 'bad-name', '撞名被拒', JSON.stringify(r));
+  ok(JSON.stringify(objs) === before, '拒绝时整份对象列表一个字节都没动');
+  ok(/已经有对象叫/.test(r.reason), '给的原因说清了是撞名', r.reason);
+
+  // 改成自己现在这个名字 -> 不算改（不算错，也不写）
+  objs = mk();
+  r = Edit.renameObjectAlias(objs, objs[0], 'Bank');
+  ok(r.ok === true && r.unchanged === true, '改成原名 = 没改', JSON.stringify(r));
+
+  // 形状：RTID 会被这些字符切坏，一律不收
+  objs = mk();
+  const badNames = ['a@b', 'a(b', 'a)b', 'a b', 'a"b', 'a\\b', ''];
+  badNames.forEach(n => {
+    const rr = Edit.renameObjectAlias(objs, objs[0], n);
+    ok(rr.ok === false && rr.error === 'bad-name',
+      `「${n}」不能当代号（会被拒）`, JSON.stringify(rr));
+  });
+  ok(objs[0].aliases[0] === 'Bank', '上面那一串拒绝一个都没写进去', objs[0].aliases[0]);
+  ok(Edit.renameObjectAlias(objs, objs[0], 'A-1_2').ok === true,
+    '字母数字下划线连字符是收的（仓库里 4789 个别名的字符集）');
+  ok(objs[0].aliases[0] === 'A-1_2', '收下的那个真的写进去了', objs[0].aliases[0]);
+
+  // 没有别名的对象：改不了，照实说
+  objs = mk();
+  const anon = { objclass: 'Foo', objdata: {} };
+  objs.push(anon);
+  r = Edit.renameObjectAlias(objs, anon, 'Bar');
+  ok(r.ok === false && r.error === 'no-alias', '没有别名的对象改不了代号', JSON.stringify(r));
+
+  // 老代号被两个对象共用（坏数据）：拒绝，不替用户猜改哪一个
+  objs = mk();
+  objs.push({ aliases: ['Bank'], objclass: 'Twin', objdata: {} });
+  const dup = JSON.stringify(objs);
+  r = Edit.renameObjectAlias(objs, objs[0], 'MyBank');
+  ok(r.ok === false && r.error === 'ambiguous', '重名时拒绝', JSON.stringify(r));
+  ok(JSON.stringify(objs) === dup, '拒绝时没动任何一个对象');
+}
+
+{
   // 纯文本替换：只认 RTID(...) 里的别名，不误伤普通字符串
   const text = '{"A":"RTID(SeedBank@CurrentLevel)","B":"SeedBank","C":"RTID(SeedBank@LevelModules)"}';
   const r = Edit.replaceAliasInText(text, 'SeedBank', 'MyBank');
@@ -477,8 +664,8 @@ console.log('\n大纲（对象树的数据来源）');
   ok(o.waves[7].items.length === 2, '第 8 波有 2 个事件（出怪 + 裂缝）', String(o.waves[7].items.length));
   ok(o.dangling.length === 0, '这份模板没有悬空引用');
   ok(o.supporting.length === 0 && o.orphans.length === 0,
-    '这份模板的每个对象都直接挂在模块或波次上', `支撑 ${o.supporting.length} / 孤儿 ${o.orphans.length}`);
-  ok(o.orphans.every(n => n.objclass), '孤儿节点也带着 objclass');
+    '这份模板的每个对象都直接挂在模块或波次上', `支撑 ${o.supporting.length} / 孤立模块 ${o.orphans.length}`);
+  ok(o.orphans.every(n => n.objclass), '孤立模块节点也带着 objclass');
 }
 {
   const doc = readTemplate('2.自选卡示例.json');
@@ -494,18 +681,184 @@ console.log('\n大纲（对象树的数据来源）');
     JSON.stringify(o2.dangling));
 }
 {
-  // 模板 8 的两个真孤儿。同时验证「支撑对象」那一桶确实分得开：
-  // 被出怪事件引用的僵尸类型不在模块/波次里，但可达，属于支撑对象，不该混进孤儿。
+  // 模板 8 的两个真孤立模块。同时验证「支撑对象」那一桶确实分得开：
+  // 被出怪事件引用的僵尸类型不在模块/波次里，但可达，属于支撑对象，不该混进孤立模块。
   const doc = readTemplate('8.自定义僵尸示例.json');
   const o = Outline.build(doc.objects);
   const orphanNames = o.orphans.map(n => n.objclass).sort().join(',');
-  ok(orphanNames === 'ZombiePropertySheet,ZombieType', '模板 8 的 2 个真孤儿在大纲里也是孤儿', orphanNames);
+  ok(orphanNames === 'ZombiePropertySheet,ZombieType', '模板 8 的 2 个真孤立模块在大纲里也是孤立模块', orphanNames);
   ok(o.supporting.length > 0, '模板 8 有支撑对象（被引用但不是模块/波次）',
     o.supporting.map(n => n.objclass).join(','));
   ok(o.supporting.every(n => n.objclass !== 'ZombieType' || n.alias !== 'tutorial_2'),
-    '支撑对象里没有那个真孤儿');
+    '支撑对象里没有那个真孤立模块');
   ok(o.orphans.length + o.supporting.length + o.used === o.total,
     '三桶加总等于对象总数', `${o.orphans.length}+${o.supporting.length}+${o.used}=${o.total}`);
+}
+
+// ── 体检报告 ──────────────────────────────────────────────────────────
+//
+// report.js 是「这份文件有什么毛病」的单一真源，状态栏 / 汇总条 / 对象树都被
+// 同一份结果喂着。它的价值全在**合并**上，所以这里用一个同时踩中 2×3 里那几格的
+// 探针把它钉死：一条只被 invalid 报的、一条只被 dangling 报的、一条只被 notes
+// 报的、一条两边都报的 —— 再加**对象深处**那一行两格（本文件里找不到 / 来源没有数据）。
+//
+// 换个说法：这几条断言反过来读就是变异测试要抓的东西 —— 把去重换成 concat
+// 会多一条，把并集换成只取 invalid 会少一条，不收 notes 也会少一条。
+console.log('\n体检报告');
+{
+  const tpl = Templates.find(t => t.title === '传送带示例');
+  const doc = JSON.parse(tpl.text);
+  const def = Parse.findLevelDefinition(doc.objects);
+  const wm = Parse.findByClass(doc.objects, 'WaveManagerProperties');
+  ok(!!def && !!wm && Array.isArray(wm.objdata.Waves) && wm.objdata.Waves.length > 0,
+    '探针模板有 Modules 也有波次（两个来源都得能塞进去）',
+    `${!!def} / ${wm && wm.objdata.Waves.length}`);
+
+  const GHOST = 'RTID(GhostModule@CurrentLevel)';        // Modules 里指本文件 -> 两边都报
+  const WAVE_GHOST = 'RTID(GhostInWave@CurrentLevel)';   // 第 1 波里指本文件   -> 只有 dangling 报
+  const TYPO = 'RTID(NotARealModule@LevelModules)';      // Modules 里指参考文件 -> 只有 invalid 报
+  const WAVE_TYPO = 'RTID(NotARealEither@LevelModules)'; // 第 1 波里指参考文件 -> 只有 notes 报
+  const DEEP_GHOST = 'RTID(NotARealDeepOne@CurrentLevel)'; // 对象深处指本文件 -> 只有 dangling 报
+  const DEEP_UNKNOWN = 'RTID(NotARealDeepTwo@SkillTypes)'; // 对象深处，来源我们没数据 -> 不判
+
+  // 探针本身得先成立，否则下面那些断言全是空的
+  const fileAliases = Parse.allAliases(doc.objects);
+  ok(!fileAliases.has('GhostModule') && !fileAliases.has('GhostInWave'),
+    '探针用的别名确实不在文件里');
+  ok(Refs.has('LevelModules') && !Refs.aliases('LevelModules').has('NotARealModule')
+    && !Refs.aliases('LevelModules').has('NotARealEither'),
+    '探针用的 @LevelModules 别名确实不在参考数据里（参考数据没加载的话这条会红）');
+
+  def.objdata.Modules.push(GHOST, TYPO);
+  wm.objdata.Waves[0].push(WAVE_GHOST, WAVE_TYPO);
+
+  const rep = Report.build(doc.objects, Refs, Refs.aliases('LevelModules'));
+  const byRtid = {};
+  rep.invalidRefs.forEach(r => { byRtid[r.rtid] = r; });
+
+  // 不去重的话 GHOST 会被 invalid 和 dangling 各报一次，变成 5 条
+  ok(rep.invalidRefs.length === 4, '四处坏点合成 4 条（不是各算各的 5 条）',
+    rep.invalidRefs.map(r => r.rtid).join(' '));
+  ok(rep.counts.invalidRefs === rep.invalidRefs.length, 'counts 跟数组长度对得上');
+
+  ok(!!byRtid[GHOST] && byRtid[GHOST].kind === 'missing',
+    'Modules 里指本文件的坏引用算 missing', byRtid[GHOST] && byRtid[GHOST].kind);
+  ok(!!byRtid[GHOST] && byRtid[GHOST].wheres.join('|') === 'LevelDefinition.Modules',
+    '……而且只算一条，出处是 Modules', byRtid[GHOST] && byRtid[GHOST].wheres.join('|'));
+
+  ok(!!byRtid[WAVE_GHOST] && byRtid[WAVE_GHOST].wheres.join('|') === '第 1 波',
+    '波次里的坏引用被收进来了（窄口径会把它整个丢掉）',
+    byRtid[WAVE_GHOST] && byRtid[WAVE_GHOST].wheres.join('|'));
+
+  ok(!!byRtid[TYPO] && byRtid[TYPO].kind === 'alias-typo',
+    '@LevelModules 里查不到的别名算 alias-typo —— 不降级成灰字',
+    byRtid[TYPO] && byRtid[TYPO].kind);
+
+  /* 第四格：波次里「参考文件里没有」的别名。它原先只进 outline.notes（树上一段
+   * 灰字，明确写着"不算错误"），用户要求这个判定也划进失效引用，所以现在它必须
+   * 出现在这份清单里，而且出处是那一波。
+   * 这条是变异 M19 盯着的：把 report.js 里收 notes 的那一段删掉，这里就变空。 */
+  ok(!!byRtid[WAVE_TYPO] && byRtid[WAVE_TYPO].kind === 'alias-typo',
+    '参考文件里没有的别名也进失效引用（原先只在灰字提示里）',
+    byRtid[WAVE_TYPO] && byRtid[WAVE_TYPO].kind);
+  ok(!!byRtid[WAVE_TYPO] && byRtid[WAVE_TYPO].wheres.join('|') === '第 1 波',
+    '……而且出处是它所在的那一波', byRtid[WAVE_TYPO] && byRtid[WAVE_TYPO].wheres.join('|'));
+
+  /* 报告里不该再有一档独立的灰字 —— 三份清单都在 invalidRefs 里，两处并存就是
+   * 「同一件事出现两次」。字段本身删掉了，所以这里断言的是"没这个字段"。 */
+  ok(rep.notes === undefined && rep.counts.notes === undefined,
+    '报告里不再有独立的灰字一档（三份清单都并进 invalidRefs 了）',
+    JSON.stringify(Object.keys(rep)));
+
+  /* 汇总条（用 counts.orphans）和树（用 outline.orphans）必须报同一个数，
+   * 否则同一份文件在侧栏里有两个互相矛盾的孤立模块计数。
+   * 特意换到模板 8：它**有** 2 个真孤立模块，用探针那份的话是 0 === 0，
+   * 两边同时算错也照样绿。 */
+  const doc8 = readTemplate('8.自定义僵尸示例.json');
+  const rep8 = Report.build(doc8.objects, Refs, Refs.aliases('LevelModules'));
+  ok(rep8.counts.orphans === 2 && rep8.counts.orphans === rep8.outline.orphans.length,
+    '有根时两条口径的孤立模块数相等，且确实是 2 不是 0（汇总条和树不能各说各话）',
+    `${rep8.counts.orphans} vs ${rep8.outline.orphans.length}`);
+
+  /* ── 第三行：对象深处（objdata 里）──
+   *
+   * 这一行的第一格**曾经是个 bug**：outline.build 只把节点级的 notes 汇总进顶层，
+   * dangling 一个都不收。于是对象深处一条落空的 @CurrentLevel 引用只表现为
+   * 「那个对象连带不上、变成孤立模块」，失效引用那一栏一声不吭 —— 而游戏读到落空的
+   * 引用会闪退。用户报的就是这个。
+   *
+   * 两格一起断言：收进来（第一格），以及**没有数据的外部来源仍然不判**（第二格）。
+   * 后者是那 679 个 reference 对象的回归网 —— 顺手全收上来就是满屏误报。 */
+  {
+    /* 只挑**真正在对象深处**的引用：LevelDefinition 的 objdata 里装的就是 Modules
+     * 数组、WaveManagerProperties 里装的是每一波，那两处上面已经由 resolveList 收过，
+     * 拿它们当探针等于什么都没测（出处会是 LevelDefinition.Modules）。 */
+    const isContainer = o => {
+      const c = Parse.objClassOf(o);
+      return c === 'LevelDefinition' || c === 'WaveManagerProperties';
+    };
+    const pick = objs => {
+      const local = Parse.allAliases(objs);
+      let hit = null;
+      objs.forEach(o => {
+        if (hit || isContainer(o)) return;
+        Rtid.collectRefs(o && o.objdata, []).forEach(r => {
+          if (!hit && r.source === 'CurrentLevel' && local.has(r.alias)) hit = { obj: o, ref: r };
+        });
+      });
+      return hit;
+    };
+    const found = pick(doc.objects);
+    ok(!!found, '探针模板里有一个「对象深处」的 @CurrentLevel 引用可用（探针本身得成立）',
+      found ? Parse.objClassOf(found.obj) + ' 里的 ' + found.ref.full : '没找到');
+
+    const deepSet = (objs, rtid) => {
+      const h = pick(objs);
+      h.obj.objdata = JSON.parse(JSON.stringify(h.obj.objdata).split(h.ref.full).join(rtid));
+      return { host: h.obj, alias: (h.obj.aliases || [])[0] };
+    };
+
+    const d3 = JSON.parse(JSON.stringify(doc.objects));
+    const t3 = deepSet(d3, DEEP_GHOST);
+    const rep3 = Report.build(d3, Refs, Refs.aliases('LevelModules'));
+    const hit3 = rep3.invalidRefs.filter(r => r.rtid === DEEP_GHOST)[0];
+    ok(!!hit3 && hit3.kind === 'missing',
+      '对象深处落空的 @CurrentLevel 引用进失效引用（原先只多一个孤立模块）',
+      rep3.invalidRefs.map(r => r.rtid).join(' ') || '一条都没有');
+    ok(!!hit3 && hit3.wheres.join('|') === t3.alias,
+      '……而且出处是**那个对象**（不然用户不知道该去哪儿改）',
+      hit3 && hit3.wheres.join('|'));
+    ok(rep3.counts.invalidRefs === rep.counts.invalidRefs + 1,
+      '整份清单只多这一条', `${rep.counts.invalidRefs} -> ${rep3.counts.invalidRefs}`);
+    ok(Outline.nodeOf(t3.host, Outline.contextOf(d3, Refs)).dangling
+        .some(x => x.alias === 'NotARealDeepOne'),
+      '……节点上那个 ⚠ 也还在（树上和清单是同一份数据的两处渲染）');
+
+    // 第二格：来源我们**没有数据**时不判 —— external-unknown 的边界
+    ok(!Refs.has('SkillTypes'),
+      '探针用的 @SkillTypes 确实是我们没数据的来源（有数据的话这条测试会失真）');
+    const d4 = JSON.parse(JSON.stringify(doc.objects));
+    const t4 = deepSet(d4, DEEP_UNKNOWN);
+    const rep4 = Report.build(d4, Refs, Refs.aliases('LevelModules'));
+    ok(rep4.counts.invalidRefs === rep.counts.invalidRefs,
+      '没有数据的来源（@SkillTypes）一律不判 —— 收进来就是满屏误报',
+      rep4.invalidRefs.map(r => r.rtid).join(' ') || '（没有，正确）');
+    ok(Outline.nodeOf(t4.host, Outline.contextOf(d4, Refs)).dangling.length === 0,
+      '……那个节点上也不标 ⚠（"我们没这个源"不是"引用落空"）');
+  }
+
+  /* 无根文件：findOrphanedObjects 有 hasRoot 守卫，大纲那条路没有 ——
+   * computeReachableObjects 在没有 LevelDefinition 时返回空 Set，于是大纲会把
+   * **每一个**对象都判成孤立模块。树上没露馅只因为 tree.js 在无根时提前 return，
+   * 而汇总条在树外面。两条都断言，是为了让"守卫为什么必须存在"有据可查。 */
+  const noRoot = doc.objects.filter(o => Parse.objClassOf(o) !== 'LevelDefinition');
+  const rep2 = Report.build(noRoot, Refs, Refs.aliases('LevelModules'));
+  ok(rep2.counts.orphans === 0,
+    '没有 LevelDefinition 的文件不报孤立模块（否则汇总条会打出满屏红字）',
+    String(rep2.counts.orphans));
+  ok(rep2.outline.orphans.length > 0,
+    '……而大纲那边确实会把一堆对象判成孤立模块（上面那条守卫就是为它设的）',
+    String(rep2.outline.orphans.length));
 }
 
 // ── 写入键名的契约闸 ──────────────────────────────────────────────────
@@ -707,11 +1060,11 @@ console.log('\n外部参考文件');
   ok(consulted > 0, '大纲确实把引用拿去查了参考数据（记账替身被调用）', `${consulted} 次`);
 }
 {
-  /* 可达性 —— 「清理」判孤儿/失效模块的依据。这里有一处**对上游的刻意偏离**：
+  /* 可达性 —— 「清理」判孤立模块/失效模块的依据。这里有一处**对上游的刻意偏离**：
    * 上游 LevelParser.kt 用 substringBefore("@") 丢掉来源，于是 RTID(x@ZombieTypes)
-   * 会给本文件里同名的 x 造一条假边，把真孤儿藏起来、让「清理」漏掉它。
+   * 会给本文件里同名的 x 造一条假边，把真孤立模块藏起来、让「清理」漏掉它。
    * 偏离只走到"能证明这个别名属于别的文件"为止：来源我们没有数据时不猜。
-   * 因为清理是**破坏性操作**，宁可漏报孤儿，不可误删对象。 */
+   * 因为清理是**破坏性操作**，宁可漏报孤立模块，不可误删对象。 */
   const mk = ref => ([
     { objclass: 'LevelDefinition', aliases: ['Def'], objdata: { Modules: [ref] } },
     // 本文件里真有个叫 tutorial 的对象，ZombieTypes 里也有个 tutorial —— 同名不同物。
@@ -721,13 +1074,13 @@ console.log('\n外部参考文件');
   const orphans = ref => Parse.findOrphanedObjects(mk(ref), Refs).length;
   ok(Refs.aliases('ZombieTypes').has('tutorial'), '前提：ZombieTypes 里真有 tutorial');
   ok(orphans('RTID(tutorial@ZombieTypes)') === 1,
-    '指向已加载外部来源的引用不算本文件的边（本地同名对象仍是孤儿）');
+    '指向已加载外部来源的引用不算本文件的边（本地同名对象仍是孤立模块）');
   ok(orphans('RTID(tutorial@CurrentLevel)') === 0, '@CurrentLevel 的引用算边');
   ok(orphans('RTID(tutorial)') === 0, '不写来源的引用按 CurrentLevel 算边（上游有意容忍）');
   ok(orphans('RTID(tutorial@NoSuchSourceEver)') === 0,
-    '来源我们没有数据时不猜（fail-open）—— 宁可漏报孤儿，不可误删对象');
+    '来源我们没有数据时不猜（fail-open）—— 宁可漏报孤立模块，不可误删对象');
 
-  /* 只是"算出来是孤儿"还不够 —— 用户看见的那棵树和「清理」真删掉的东西
+  /* 只是"算出来是孤立模块"还不够 —— 用户看见的那棵树和「清理」真删掉的东西
    * 必须对得上。这两条路径传 refs 的方式不一样：树那边是显式的
    * Outline.build(objs, refsTable())，而「清理」走 Edit.cleanupOrphaned ->
    * Parse.findOrphanedObjects(objects)（**省略** refs，靠 parse.js 里那个全局回退）。
@@ -737,7 +1090,7 @@ console.log('\n外部参考文件');
   const shown = Outline.build(collision, Refs).orphans.length;
   const removed = Edit.cleanupOrphaned(collision.slice()).length;
   ok(shown === 1 && removed === 1,
-    '树上标出的孤儿数 = 「清理」真删掉的数（这次是那条冲突引用造成的孤儿）',
+    '树上标出的孤立模块数 = 「清理」真删掉的数（这次是那条冲突引用造成的孤立模块）',
     `树 ${shown} / 清理 ${removed}`);
 
   // 9 份真模板上四种算法（隐式 refs / 显式 refs / 树 / 真清理）也必须一致

@@ -1,5 +1,7 @@
 /* 模块/事件插入时的默认 objdata 骨架 —— 由 Z-Editor 的 ModuleDefinitions.kt 提取。
- * 自动生成后再人工核对，不是手工维护的数据文件。
+ * 自动生成后再人工核对，不是手工维护的数据文件 —— **唯一例外是文件末尾那条
+ * 「WaveManagerProperties」（波次容器）**，手工补的，重跑生成器不会产出它，
+ * 理由和补回来的注意事项写在那一条头上。
  * 每个 objClass 对应插入时新对象 objdata 的初始值（Gson 全默认序列化的结果，null 字段已省略）。
  *
  * 提取规则：
@@ -486,6 +488,32 @@ window.ZLevel.Skeletons = {
   },
   "WaveActionMagicMirrorTeleportationArrayProps2": {
     "MagicMirrorTeleportationArrays": []
+  },
+
+  // ========== 以下这一条是**手工补的**，不在 ModuleDefinitions.kt 的 ModuleRegistry 里 ==========
+  /* 波次容器（objClass WaveManagerProperties）—— 波次管理器的 WaveManagerProps 键指着它，
+   * 波次列表（Waves）和那几个倒计时参数都挂在它身上。
+   *
+   * 为什么要手工补：它**不是一个模块类**，ModuleRegistry 里没有它，于是生成器永远不会产出
+   * 这一条。而它非有不可 —— 注册表里「波次容器」那条（isContainer）和「插入波次管理器时
+   * 顺带建一个容器」那个行为都按 objClass 查这张表，查不到就是"按插入什么都不建"，
+   * 而且**页面上一点异常都没有**。
+   * ⚠ **重新生成本文件之后必须把这一段补回来。**
+   *
+   * 键和默认值的来源：9 份真实模板里有 5 份带容器，这 8 个键在 5 份里**全都有**
+   * （第 9 个键 SuppressFlagZombie 只在「9.我是植物示例」那一份里出现，多半是那份关卡
+   * 自己加的，所以不放进初始值）。Waves 只留**一波空的**：WaveCount 在所有真实容器里都
+   * 等于 Waves 的长度，而一波都没有的容器在这版编辑器里是死胡同（「插入事件」要求第 N 波
+   * 存在，而眼下没有别的地方能加波）—— 要多几波得到文本里自己往 Waves 里加。 */
+  "WaveManagerProperties": {
+    "FlagWaveInterval": 5,
+    "MaxNextWaveHealthPercentage": 0.85,
+    "MinNextWaveHealthPercentage": 0.7,
+    "WaveCount": 1,
+    "Waves": [[]],
+    "ZombieCountDownFirstWaveConveyorSecs": 5,
+    "ZombieCountDownFirstWaveSecs": 12,
+    "ZombieCountDownHugeWaveDelay": 5
   }
 };
 

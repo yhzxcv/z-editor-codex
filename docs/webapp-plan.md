@@ -131,7 +131,7 @@ LevelModules.json  →  真实样例值               （自动）
 |---|---|---|
 | **T1** | 对象树 + 文本编辑（CodeMirror 6）+ 图鉴插入 + 保存下载 | ~11 人日 |
 | **T2** | T1 + **键说明侧栏** + 自动补全（键名/枚举值/代码） | ~25 人日 |
-| **T3** | T2 + 校验层（孤儿对象 / 悬空引用 / 模块冲突 + 一键修复） | ~32 人日 |
+| **T3** | T2 + 校验层（孤立模块 / 悬空引用 / 模块冲突 + 一键修复） | ~32 人日 |
 | **T4** | T3 + 由 schema **自动生成表单**，给高频模块配半图形界面 | ~42 人日 |
 
 **T2 里的 schema 抽取是核心任务，应最先做**（预留 5~8 人日），
@@ -145,7 +145,7 @@ Z-Editor 里这些是**纯逻辑、零 Android 依赖**，可以近乎逐行翻�
 |---|---|---|
 | `RtidParser` | `data/RtidParser.kt` | 32 |
 | `ObjectOrderRegistry`（保存时的对象排序） | `data/ObjectOrderRegistry.kt` | 221（**零 import**） |
-| `LevelParser` 的 sanitize / 孤儿检测 / 可达性分析 / 引用改名 | `data/LevelParser.kt` | 266 |
+| `LevelParser` 的 sanitize / 孤立模块检测 / 可达性分析 / 引用改名 | `data/LevelParser.kt` | 266 |
 | `ModuleConflictRepository`（模块冲突规则） | `data/repository/ModuleConflictRepository.kt` | 67 |
 
 **其中 `ObjectOrderRegistry` 是保存兼容性的红线** —— 不按它排序会写出游戏读起来有问题的文件。

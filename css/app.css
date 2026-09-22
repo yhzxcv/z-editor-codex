@@ -1,7 +1,7 @@
 /* 关卡编辑器 · 样式
  *
- * 布局是固定的三行 + 两列：
- *   topbar（工具） / body（侧栏 + 编辑区） / statusbar
+ * 布局是两列：左侧栏（占满整列高度）+ 右列那一摞三行
+ *   .shell = topbar（工具） / .main（编辑区） / statusbar
  * 整页不滚动，滚动只发生在 .tabpanel 和 CodeMirror 的 .cm-scroller 里。
  *
  * 断点只有一个：940px。以下侧栏收成抽屉（☰ 唤出），以上常驻。
@@ -88,11 +88,44 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 .grow { flex: 1 1 auto; }
 .dim { color: var(--dim); }
 
-/* ── 骨架 ───────────────────────────────────────────────────────────── */
+/* `hidden` 必须真的藏得住。
+ *
+ * 浏览器的默认样式表里只有 `[hidden] { display: none }`，而**作者样式表里任何
+ * 一条设了 display 的规则都能盖掉它**（来源优先级压过选择器优先级）。踩过一次：
+ * `.errbar { display: flex }` 把 `bar.hidden = true` 变成了纯粹的心理安慰 ——
+ * 元素照样占位置照样是红的，只是内容不再更新，于是"没有语法错误时顶上也有一条
+ * 红框，报错修好了字还留在那儿"。整个 bug 在 jsdom 里复现不出来，因为 jsdom 的
+ * getComputedStyle 自己认 hidden 属性、不管这条 cascade 规则。
+ *
+ * !important 在这里是对的用法：hidden 属性表达的就是"别显示"，没有例外。
+ * 下面这条 rule 的位置无所谓（!important 不看顺序），放在顶上是让人一眼看见。 */
+[hidden] { display: none !important; }
+
+/* 置灰的按钮：撤销/重做常驻，不可用时走这里而不是藏起来 */
+.btn:disabled { opacity: .42; cursor: default; }
+.btn:disabled:hover { border-color: var(--line); background: var(--panel-2); }
+
+/* ── 骨架 ─────────────────────────────────────────────────────────────
+ *
+ * 两列：侧栏独占左列，从顶上一直贯通到底 —— 顶栏只在右列，不横跨整页。
+ * 原先侧栏住在「topbar 下面那一行」里，于是它顶上永远空着一条顶栏高度的
+ * 空白，像没加载完。右列那一摞（顶栏 / 编辑区 / 状态栏）收在 .shell 里，
+ * 自己再分三行。
+ *
+ * 两列都靠 min-width/min-height: 0 放行内部的 overflow —— 不加的话
+ * grid 项的自动最小尺寸会把 .tabpanel 和 .cm-scroller 撑开，整页跟着滚。
+ */
 .app {
   display: grid;
-  grid-template-rows: var(--topbar-h) 1fr var(--status-h);
+  grid-template-columns: var(--sidebar-w) 1fr;
   height: 100dvh;
+}
+
+.shell {
+  display: grid;
+  grid-template-rows: var(--topbar-h) 1fr var(--status-h);
+  min-width: 0;
+  min-height: 0;
 }
 
 /* ── 顶栏 ───────────────────────────────────────────────────────────── */
@@ -155,25 +188,19 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 }
 .mono.link { font-family: var(--mono); font-size: .88em; }
 
-/* ── 主体两列 ───────────────────────────────────────────────────────── */
-.body {
-  display: flex;
-  min-height: 0;                   /* 不加这条，子元素的 overflow 不生效 */
-}
+/* ── 侧栏与编辑区 ───────────────────────────────────────────────────── */
 
 .sidebar {
-  width: var(--sidebar-w);
-  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: 0;                   /* 不加这条，.tabpanel 的 overflow 不生效 */
   background: var(--panel);
   border-right: 1px solid var(--line);
 }
 
 .main {
-  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;                   /* 同上，这条管的是 .cm-scroller */
   display: flex;
   flex-direction: column;
 }
@@ -196,9 +223,34 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 .tabpanel {
   flex: 1 1 auto;
   overflow-y: auto;
+  /* ⚠ `stable` 是为了**布局稳定**，不是美观问题：树一展开就多出滚动条，滚动条一占宽度，
+   * 整棵树的文字跟着重新折行 —— 表现是展开/折叠时文字左右跳一下。
+   *
+   * 预留之后内容宽度**恒等于"有滚动条"那一档**（比没有滚动条时窄一个滚动条的宽度，
+   * Windows 上大约 15px）。代价是常驻少这么点宽度，换来的是展开/折叠时一个字都不动。
+   * 注意方向：是"没有滚动条时也按有的算"，不是"有滚动条时不占地方"。
+   *
+   * 只对**经典**滚动条生效；macOS 那种覆盖式滚动条本来就不占宽度（gutter 是 0），
+   * 这条在那边是空转 —— 那正是想要的结果，别去掉。
+   *
+   * 这件事 jsdom 量不到（它不做排版，也不知道滚动条有多宽），只能靠人眼：
+   * README 手工验证清单第 21 条。 */
+  scrollbar-gutter: stable;
   overscroll-behavior: contain;
   padding: 10px;
 }
+
+/* ── 侧栏的字号梯子 ───────────────────────────────────────────────────
+ *
+ * 面板里的文字只从这几档里挑，别各写各的（基准是 body 的 15px）：
+ *
+ *   页签 / 汇总条              .9em    这一栏最上面两行，说话最响
+ *   段落标题 / 叶子行 / 按钮    .86em   正文一层
+ *   段落说明 / 编译期提示       .8em    附属信息，比正文弱一档
+ *
+ * 段尾的按钮（「清理这 N 个孤立模块」）原先走的是顶栏那套 .btn（1em = 15px），
+ * 比它所在的那一段正文还大，看着像另一个层级的东西 —— 见 .sec-action .btn。
+ */
 
 /* ── 对象树 ─────────────────────────────────────────────────────────── */
 .sec { margin-bottom: 4px; }
@@ -210,7 +262,7 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   width: 100%;
   padding: 5px 6px;
   border-radius: 6px;
-  font-size: .82em;
+  font-size: .86em;
   font-weight: 650;
   color: var(--dim);
   text-align: left;
@@ -224,14 +276,56 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   font-variant-numeric: tabular-nums;
 }
 .sec-body { padding-left: 4px; }
+/* 嵌在别的段里的那些段（波次管理器里的每一波，2026-09-22）。
+   左边一道竖线 + 再缩一点：只缩几像素的话，看着跟顶层段落没差别 ——
+   而这一段的全部意思就是"它们在管理器里面"。字号和字重都降半档，
+   让"管理器 → 第 N 波 → 事件"这三层一眼分得开。 */
+.sec-sub { margin-bottom: 1px; }
+.sec-body > .sec-sub {
+  margin-left: 3px;
+  padding-left: 6px;
+  border-left: 2px solid var(--line);
+}
+.sec-sub > .sec-head {
+  font-size: .82em;
+  font-weight: 600;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
 .sec-note {
   padding: 2px 6px 6px 24px;
-  font-size: .78em;
+  font-size: .8em;
   color: var(--faint);
   line-height: 1.45;
 }
+/* 段落色调。三档里 sec-dim 已经没用了 —— 它给的是「参考文件里没有」那一段，
+   那段并进失效引用之后就没有"灰字段落"这回事了（section() 仍然支持 tone，
+   要再加一档写在这里就行）。 */
 .sec-warn > .sec-head { color: var(--warn); }
-.sec-dim > .sec-head { color: var(--faint); }
+/* 「失效引用」用 bad：那一段里装着所有解不开的引用 —— 本文件里找不到的、
+   参考文件里没有的，游戏真去加载时都会落空。原先标 warn，跟"可能拼错了"
+   同级，现在是两回事了。 */
+.sec-bad > .sec-head { color: var(--bad); }
+
+/* 段落尾部的动作按钮（现在只有孤立模块段的「清理」）。
+   左边 20px 跟叶节点的文字对齐（.node-go 的 padding-left）。 */
+.sec-action { margin: 2px 6px 4px 20px; }
+
+/* 段尾按钮跟着**段落**的字号走，而不是顶栏那套 .btn。它住在树里，
+   比树的正文大一号会显得像另一个层级的东西，也把这一段撑得很高。 */
+.sec-action .btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: .86em;
+}
+
+/* 对象栏顶上的汇总条：一行说清这份文件有几处毛病。
+   复用 .chk 那套配色和它的内边距，字号跟页签一样（.9em）。
+   ⚠ .chk 自带 margin-bottom: 9px，#sum 原先又自带 padding: 7px 9px + 9px 外边距，
+   三样叠起来盒子底下空了 25px —— 说是"跟下面那段的留白"，其实全是空转的边距。 */
+#sum { margin: 0 0 8px; }
+#sum .chk { padding: 7px 9px; margin-bottom: 0; font-size: .9em; }
+#sum .chk-h { margin-bottom: 0; }
 
 .node {
   display: flex;
@@ -248,7 +342,7 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   gap: 7px;
   padding: 4px 6px 4px 20px;
   text-align: left;
-  font-size: .84em;
+  font-size: .86em;
 }
 .node-cls {
   font-family: var(--mono);
@@ -258,10 +352,10 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   white-space: nowrap;
 }
 .node-alias { color: var(--dim); font-size: .88em; flex: 0 0 auto; }
+/* 这个对象身上有解不开的引用。两档（本文件找不到 / 参考文件里没有）共用一个
+   标记，分档写在 title 里。原先第二档是个更弱的灰点（.node-note），那个类
+   随着「参考文件里没有」并进失效引用一起删了。 */
 .node-warn { color: var(--warn); flex: 0 0 auto; }
-/* 外部引用里对不上的别名：比 ⚠ 弱一档，只是个提示。
-   用 --faint 而不是 --warn —— 它不该跟真失效抢注意力。 */
-.node-note { color: var(--faint); flex: 0 0 auto; }
 .node-where { color: var(--faint); font-size: .82em; flex: 0 1 auto;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -276,11 +370,61 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 .node:hover .node-del, .node-del:focus-visible { opacity: 1; }
 .node-del:hover { color: var(--bad); background: var(--bad-soft); }
 
+/* 「改这个对象的参数」。跟 ✕ 不一样，它**不藏**（.35 而不是 0）—— 跳转和改参数
+   是两件平级的事，用户得看得见这个入口在哪儿；藏起来的话没人会发现它。
+   但也不实心：一行上三个按钮全亮着，这棵树就没法读了。 */
+.node-edit {
+  flex: 0 0 auto;
+  width: 26px;
+  color: var(--faint);
+  border-radius: 6px;
+  opacity: .35;
+}
+.node:hover .node-edit, .node-edit:focus-visible { opacity: 1; }
+.node-edit:hover { color: var(--accent-line); background: var(--panel-2); }
+
+/* 「失效引用」那一段的行。行上只有失效的代号（红）和它出现在哪儿。
+   ⚠ 字号必须在这儿说一次：这些行**不是按钮**，没有 .node-go 那层带 .86em 的壳，
+   不写就按树的基准字号画 —— 比旁边每一行都大一号，一段里那几行会跳出来。
+   左内边距跟 .node-go 一样（20px），两段的代号才对得齐。 */
+.node-bad {
+  align-items: baseline;
+  gap: 7px;
+  padding: 4px 6px 4px 20px;
+  font-size: .86em;
+  cursor: pointer;
+}
 .node-bad .node-cls { color: var(--bad); }
-.node-bad { cursor: pointer; }
-.node-dim .node-cls { color: var(--dim); }
-.node-dim .node-alias { color: var(--faint); }
-.node-dim { cursor: pointer; }
+
+/* 「模块冲突」那一段的行。跟「失效引用」不一样，这一行是**两条**：上面是类名、
+   下面是一整句人话解释（最长 38 个字，见 js/level/conflicts.js 的 description）。
+
+   ⚠ 这一档**不能横着排**。`.node` 是 flex 行，而 `.node-alias` 是 `flex: 0 0 auto`
+   —— 它在树上别处装的是短代号（不给缩是对的），可接一句整话就不成了：那一行会
+   顶出侧栏那条固定宽度（`--sidebar-w: 310px`），右边半句永远看不见，也没有横向
+   滚动条能把它拉出来。所以这一档改成上下两行，两条都允许折行，宽度到侧栏边为止。
+
+   `overflow-wrap: anywhere` 是兜底：万一来个长到一行放不下的单个类名，也得在中间
+   断开，不许把行顶宽。 */
+.node-conf {
+  display: block;                  /* 盖掉 .node 的 flex —— 就是要上下摆 */
+  padding: 4px 6px 4px 20px;       /* 左内边距跟 .node-bad 一样，代号才跟上一段对齐 */
+  font-size: .86em;
+  cursor: default;                 /* 这一行没有可点的东西（冲突要人来决定留哪个） */
+}
+.node-conf .node-cls,
+.node-conf .node-alias {
+  display: block;
+  max-width: 100%;
+  white-space: normal;             /* 盖掉 .node-cls 的 nowrap */
+  overflow-wrap: anywhere;
+}
+.node-conf .node-cls { color: var(--bad); }
+.node-conf .node-alias {
+  margin-top: 2px;
+  font-size: .88em;
+  line-height: 1.45;
+}
 
 .tree-empty { padding: 10px 6px; font-size: .88em; }
 .tree-empty p { margin: 0 0 8px; }
@@ -309,7 +453,7 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   width: 100%;
   padding: 5px 6px;
   border-radius: 6px;
-  font-size: .84em;
+  font-size: .86em;                /* 跟对象树的段标题同一档 */
   font-weight: 600;
   text-align: left;
 }
@@ -318,11 +462,13 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 .ins-group-b { padding: 2px 0 4px 6px; }
 
 .ins-row { margin-bottom: 3px; }
+/* 三行：中文名 + 标签 / objClass / 灰字提示（见 module-panel.js 的 row）。
+   第一版是横着一行 flex-wrap，objClass 那种等宽长串一挤就把标签顶没了。 */
 .ins-main {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
   width: 100%;
   padding: 5px 8px;
   border-radius: 6px;
@@ -330,6 +476,8 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   text-align: left;
 }
 .ins-main:hover { background: var(--accent-soft); border-color: var(--accent-line); }
+/* 第一行：名字 + 标签，横着排。 */
+.ins-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .ins-title { font-size: .86em; font-weight: 600; }
 .ins-cls {
   font-family: var(--mono);
@@ -338,12 +486,23 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 第三行。**在按钮里面**了（2026-09-22）—— 原先它在按钮外面，点到这行字上什么都
+   不发生，而它看起来就是这一行的一部分。内边距也跟着从"卡片外"改成"行内"。 */
 .ins-desc {
-  padding: 0 8px 4px 8px;
   font-size: .76em;
   line-height: 1.45;
   color: var(--faint);
 }
+/* 行尾的「详情 ›」。这一行的按钮**不再是插入**了（点开的是浮层里的详情），
+   而这个按钮长得跟旧版一模一样 —— 不写出来，肌肉记忆会让人以为点一下就插进去了。
+   margin-left:auto 把它顶到最右；标签放不下时它自己折到下一行，仍然靠右。 */
+.ins-more {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: .72em;
+  color: var(--faint);
+}
+.ins-main:hover .ins-more { color: var(--accent-ink); }
 
 .tag {
   font-size: .7em;
@@ -356,6 +515,10 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 }
 .tag-core { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
 .tag-ref { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+/* 「容器」标签（波次容器那一条）。虚线框：跟「核心」「引用」两个实心的区分开 ——
+   它说的不是"这个模块怎么样"，而是"这一条压根不是模块"（见 data/modules.js 的
+   isContainer）。实心框读起来像"这个模块的一个属性"，那就把意思说错了。 */
+.tag-box { border-style: dashed; }
 
 .wave-pick {
   display: flex;
@@ -374,9 +537,515 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   color: var(--text);
 }
 
-/* ── 图鉴插入框 ─────────────────────────────────────────────────────── */
-.codex-q {
+/* ── 模块详情浮层 ─────────────────────────────────────────────────────
+ *
+ * 侧栏「模块」页点一行弹出来的那一屏：这个模块的说明 + 键表（事件还有"插到第几波"），
+ * 「插入」按钮在底下。跟图鉴浮层（.codex-*）长得像，但**是两套**：那边有目录索引、
+ * 跨类搜索、筛选小浮层、密度三档，这里只有一屏详情。挤成一套的话，改图鉴的搜索条
+ * 会连带动到这里，而这个文件里一半的 .codex-* 规则对这边毫无意义。
+ *
+ * 外壳那几条（fixed 的位置、z-index 38、**不是遮罩弹窗**）跟 .codex-modal 是同一个
+ * 判断，理由整段写在那边（.codex-modal 上面那 20 行）：z-index 必须夹在
+ * .scrim(30) / 窄屏抽屉(35) 之上、.popover(40) / .toast(50) 之下，
+ * left 缩进一个侧栏宽度好让编辑区露出来一圈。改这里之前先去读那一段。 */
+.mdl-modal {
+  position: fixed;
+  top: calc(var(--topbar-h) + 6px);
+  right: 8px;
+  bottom: calc(var(--status-h) + 6px);
+  left: calc(var(--sidebar-w) + 10px);
+  z-index: 38;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  box-shadow: var(--shot-lg);
+  overflow: hidden;
+}
+/* 它是 tabindex="-1" 的聚焦容器，别给它画一个框 */
+.mdl-modal:focus { outline: none; }
+
+.mdl-mhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.mdl-mtitle {
+  font-weight: 650;
+  font-size: .88em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mdl-mclose {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: var(--dim);
+  font-size: .9em;
+  line-height: 1;
+}
+.mdl-mclose:hover { background: var(--panel-2); color: var(--text); }
+
+/* min-height:0 是 flex 子项能滚动的必要条件 —— 少了它内容会把浮层撑高，
+   overflow-y:auto 形同虚设（跟 .codex-mbody 上那条同一个道理）。 */
+.mdl-mbody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* ⚠ 跟 `.tabpanel` / `.codex-out` 那两条同一个理由（`.tabpanel` 那条写得长）。
+   * 这一处尤其要留：键表高度是**边用边长**的（「＋ 按默认值加上」加一行、某个键从
+   * 标量换成结构值那档会高出一截），正好在"一加就冒出滚动条"的边界上来回跨 ——
+   * 不预留的话，加一个键会让整张表左右动一下。
+   * 代价同样是常驻窄一个滚动条宽度。 */
+  scrollbar-gutter: stable;
+  padding: 10px 14px 14px;
+}
+
+/* objClass · 别名 · 来源。等宽体，因为整行都是代码里的标识符 */
+.mdl-sub {
+  margin-bottom: 8px;
+  font-family: var(--mono);
+  font-size: .76em;
+  color: var(--faint);
+  word-break: break-all;
+}
+.mdl-desc {
+  margin: 0 0 12px;
+  font-size: .86em;
+  line-height: 1.6;
+}
+.mdl-sec-h {
+  margin: 14px 0 6px;
+  font-size: .82em;
+  font-weight: 700;
+  color: var(--dim);
+  letter-spacing: .02em;
+}
+
+/* ── 「代号」那一格（只有改参数那一档露出来）──
+   跟键表同一套网格：左边名字一列、右边控件一列，看起来才是同一张表里的东西。
+   它在 .mdl-keys 外面（paint 会清空那个容器，而这一格要保住用户正在打的字），
+   所以上边框和分隔线得自己带一条 —— 底下紧接着就是 .mdl-keys 的 border-top。 */
+.mdl-alias {
+  display: grid;
+  grid-template-columns: minmax(110px, 24%) 1fr;
+  gap: 2px 10px;
+  padding: 2px 2px 8px;
+  font-size: .82em;
+}
+.mdl-alias-l { font-family: var(--mono); padding-top: 3px; }
+.mdl-alias-ctl { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
+/* 说明另起整行（flex-basis 100%），不跟输入框抢宽度 */
+.mdl-alias-hint {
+  flex: 1 1 100%;
+  font-size: .92em;
+  line-height: 1.5;
+  color: var(--faint);
+}
+
+/* 键表用一条条的行，不是 <table>：键名定宽、值吃掉剩下的宽度、说明另起整行。
+   grid 是为了三处对齐，同时值那一列能换行而不撑破浮层（word-break）。 */
+.mdl-keys { border-top: 1px solid var(--line); }
+.mdl-krow {
+  display: grid;
+  grid-template-columns: minmax(110px, 24%) 1fr;
+  gap: 2px 10px;
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: .82em;
+}
+.mdl-kname {
+  font-family: var(--mono);
+  word-break: break-all;
+  padding-top: 3px;                 /* 跟右边第一个控件的字对齐，不是跟边框对齐 */
+}
+
+/* 控件那一列。
+   ⚠ 原先这里写着"改过的值不是靠颜色区分的 —— 靠多了个 ↺ 默认"。那个按钮 2026-09-22
+   跟着"还原回默认"那一套删了，所以**现在改过的行没有任何视觉标记**：唯一的信号是顶上
+   那个「已改 N 个键」。要给回来（比如改过的行换个底色）得单独加，别以为它还在。 */
+.mdl-kctl { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
+/* 键表里那一列的输入框，和「代号」那一格的框（.mdl-alias-in）共用一套外观 ——
+   CSS 上并排写，是因为它们看起来必须是同一种东西；类名分开，是因为在 JS 那边
+   含义不同（一个是"键表某一行的控件"，一个是"这个对象的代号"）。 */
+.mdl-kinput, .mdl-alias-in {
+  flex: 1 1 140px;
+  min-width: 0;                     /* 不加这句，flex 里的 input 不肯缩 */
+  padding: 4px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: .95em;
+}
+.mdl-kinput:focus, .mdl-alias-in:focus { outline: 2px solid var(--accent-line); outline-offset: -1px; }
+.mdl-alias-in:disabled { color: var(--faint); }
+.mdl-kinput[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 15px; height: 15px;
+  margin: 4px 0 0;
+  accent-color: var(--accent-line);
+}
+.mdl-kbool {
+  font-family: var(--mono);
+  font-size: .94em;
+  color: var(--dim);
+  padding-top: 2px;
+}
+
+/* 「这个对象没填」那一行（只在**改参数**那一档出现）：骨架里有、对象 objdata 里没有。
+   整行压暗一点，一眼能跟"这个对象真有这个键"的行分开 —— 它不是值，是个入口。 */
+.mdl-krow-absent .mdl-kname { color: var(--dim); }
+.tag-absent {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--faint);
+}
+.mdl-add {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  color: var(--dim);
+  font-size: .84em;
+  white-space: nowrap;
+}
+.mdl-add:hover { background: var(--panel-2); color: var(--text); }
+
+/* 顶上的「已改 N 个键」。藏着而不是删掉：它一出现一消失，底下的表格会上下跳一格，
+   正打着字的时候很讨厌。
+   （这条右边原先还挂着一个「全部恢复默认」，2026-09-22 删了。计数留着 —— 改过的行
+   没有别的标记了，它是屏幕上唯一能看出"我动过东西"的地方。） */
+.mdl-formbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0 6px;
+}
+.mdl-formcount { font-size: .78em; color: var(--dim); }
+
+/* ── 结构值那一档：一个可编辑的框，里面是这段 JSON ──
+   2026-09-22 之前它是"表头 + 只读的 <pre> + 一句实话"，用户点名去掉表头和那句
+   实话、并且要求允许修改 —— 于是这里只剩一个框。类名沿用 .mdl-struct-code
+   （它在 JS 那边就是"结构值那一块"的意思），只把 <pre> 换成 <textarea>。
+   高度**不在这儿定**：textarea 没给 rows 就是浏览器默认的 2 行，一段 JSON 只看得见
+   头两行。行数由 JS 按内容给（module-panel.js 的 fitStruct，下限 3 行、上限 12 行），
+   这里只兜住上限：再长就框内滚，别把「插入」按钮顶出屏幕。 */
+.mdl-struct { flex: 1 1 100%; min-width: 0; }
+.mdl-struct-code {
+  display: block;
   width: 100%;
+  margin: 0;
+  padding: 6px 8px;
+  max-height: 180px;                /* 跟 fitStruct 的 12 行上限配套 */
+  resize: vertical;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: .82em;
+  line-height: 1.45;
+  white-space: pre;
+  tab-size: 2;
+}
+.mdl-struct-code:focus { outline: 2px solid var(--accent-line); outline-offset: -1px; }
+/* 只有人工词条那一档有第三格（说明），横跨整行 —— 挤在值右边会读成"值的注解" */
+.mdl-kdoc {
+  grid-column: 1 / -1;
+  font-size: .94em;
+  line-height: 1.5;
+  color: var(--faint);
+}
+/* 还没有人工注释时那一格的占位。**必须跟真注释不是一个色**，否则用户会把它读成
+   注释本身（ModuleDocs 里 `''` 是"这个键的空位"，跟"没人写"是两件事）。压暗的
+   幅度是调过的：比真注释淡一档，但要还看得清 —— 它是用户"该去补哪几个键"的清单，
+   淡到看不见就等于没有（想要再淡/再深改这一个数就行）。 */
+.mdl-kdoc-todo { opacity: .6; }
+
+/* 降级提示（"键表是自动读的" / "还没有波次"）可能同时有两条，所以是个容器 */
+.mdl-notes { margin-top: 12px; }
+.mdl-note {
+  margin: 0 0 6px;
+  padding: 6px 9px;
+  border-left: 2px solid var(--line);
+  font-size: .78em;
+  line-height: 1.5;
+  color: var(--faint);
+}
+/* 「按下去会发生什么」那几条（两个模块会相互覆盖 / 会顺带建一个波次容器）。
+   它们不是报错（没拦着用户），所以不用红；但比"这张表是自动读的"要紧得多 ——
+   用户按之前得看见，所以在灰字里挑出来给个警示色。 */
+.mdl-note-warn { border-left-color: var(--warn); color: var(--warn); }
+
+/* 出错那句话住在按钮**上面**，不是 toast：toast 是页面级的，浮层开着时它在浮层
+   底下，用户未必看得见。而浮层不关的理由正是"让用户看着原因把这一屏读完"。 */
+.mdl-err {
+  margin: 0 14px 8px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--bad-soft);
+  border: 1px solid var(--bad);
+  color: var(--bad);
+  font-size: .8em;
+  line-height: 1.5;
+}
+
+.mdl-mfoot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--line);
+}
+.mdl-cancel, .mdl-insert {
+  padding: 6px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  font-size: .84em;
+  font-weight: 600;
+}
+.mdl-cancel { color: var(--dim); }
+.mdl-cancel:hover { background: var(--panel-2); }
+.mdl-insert {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent-ink);
+}
+.mdl-insert:hover { background: var(--accent-line); }
+/* 事件但这份关卡一个波次都没有 —— 按钮留着（看得见"插到选中的波"这件事存在），
+   但按不动。压暗 + not-allowed，别让它看起来是能点的。 */
+.mdl-insert:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.mdl-insert:disabled:hover { background: var(--accent-soft); }
+
+/* ── 图鉴：侧栏只当目录索引 ───────────────────────────────────────────
+ *
+ * 顶上排「复制格式」三档，底下是**三级目录**（照旧图鉴站的侧栏）：可折叠的章节
+ * 列表 → 大类名 → 次级项。**没有输入框，也没有列表**，顶上那个「搜索全部代码」
+ * 入口 2026-09-22 也删了（搜索只活在浮层里、只搜浮层当前那一类）。
+ * 2333 条数据、最坏单大类 382 条，塞进 310px 就是一条窄缝，条目行的「名字 / 代码 /
+ * 章名」三段全靠省略号活。列表在下面的浮层里。
+ *
+ * 三级各让一档，靠颜色和缩进分出来（照旧站的 .side-ch / .side-sec / .side-g）：
+ * 章行满色、大类名是强调色的小标签、次级项缩进且降色。**三级都能点**，点了都是
+ * "切到这一类"，越深的越顺带滚到它那一段。 */
+
+/* 复制格式住侧栏顶上，不在浮层里：它是**全局设置**（localStorage 的
+   zeditor.copyFormat，跟旧图鉴站共用），却要开浮层才能改，说不通。
+   这里用 bare `.seg`（不是 `.seg-sm`）：浮层那三档靠 `.codex-mbar .seg { margin:0 }`
+   归零，侧栏没有那条，所以 margin 由这一层自己给。 */
+.codex-fmt { margin: 0 0 8px; }
+.codex-fmt-h {
+  display: block;
+  margin-bottom: 4px;
+  font-size: .78em;
+  font-weight: 650;
+  color: var(--dim);
+}
+
+.codex-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 7px;
+  text-align: left;
+  font-size: .86em;
+}
+.codex-entry:hover { background: var(--panel-2); }
+/* 当前打开的那个大类。跟浮层的开关绑在一起，切走页签也还在（它不进 onStateChange） */
+.codex-entry.on {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.codex-entry-t {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.codex-entry-n { flex: 0 0 auto; font-size: .82em; color: var(--faint); }
+.codex-entry.on .codex-entry-n { color: var(--accent-ink); }
+/* 「搜索全部代码」那个入口的样式（.codex-entry-all）跟着入口一起删了 —— 2026-09-22，
+   用户原话「不需要侧边栏的搜索入口」。搜索还在，但它只搜浮层当前这一类。 */
+
+/* ── 总目录（可折叠的章节列表）──
+ * 折叠开关的形状跟对象面板的分节头（.sec-head）对齐：同一个应用里两个折叠头长得
+ * 不一样才是问题。箭头在左、条数在右，都复用那一套 .sec-caret / .sec-count。 */
+.codex-fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 2px 0 4px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-size: .82em;
+  font-weight: 650;
+  color: var(--text);
+  text-align: left;
+}
+.codex-fold:hover { background: var(--panel-2); }
+/* 折叠时整段不占高度。靠的是顶头那条全局 `[hidden] { display:none !important }`
+   （check-editor.js 盯着它）：UA 自带的 [hidden] 只是元素选择器那一档的优先级，
+   将来谁给 .codex-chlist 或 .codex-tree 添一句 display，折叠就会静默失效。 */
+.codex-chlist { margin-bottom: 6px; }
+
+/* 章行：满色（它是"章"，不是"类"），字号跟次级项一样，靠颜色和粗细分 */
+.codex-ch { font-weight: 600; }
+
+/* 一章的目录块：`章名 · 目录` → 大类名 → 次级项 */
+.codex-tree { margin-top: 2px; }
+.codex-side-h {
+  margin: 10px 0 4px;
+  padding-left: 2px;
+  font-size: .78em;
+  font-weight: 650;
+  color: var(--dim);
+}
+/* 大类名。它**是按钮**了（2026-09-22 改的，以前是照旧站 .side-sec 的纯标签）：
+   用户原话「侧边栏点击上面的大类浮窗就应该跟着切换，而不是等到选择了次级分类」。
+   点它 = 切到这一类 + 滚到这一段，跟点它底下第一个次级项等效 —— 所以那个"点它
+   等于许一个不存在承诺"的旧理由不成立了。
+
+   排版（缩进、强调色、字号）照旧由 .codex-sec 给；.codex-sec-btn 只补**按钮复位**
+   （全局 button 那条只清了边框背景，元素自己仍是 inline-block + 居中，不补的话
+   大类名会比次级项窄一截且居中）。留 .codex-sec 这个类是有用的：check-boot 按它
+   数大类名、也按它认这一段；但**别给它加 .codex-entry**，见 codex-panel.js 里
+   那条 ⚠。 */
+.codex-sec {
+  display: block;
+  width: 100%;
+  padding: 8px 0 3px 10px;
+  font-size: .78em;
+  font-weight: 650;
+  color: var(--accent-ink);
+}
+.codex-sec-btn {
+  border-radius: 6px;
+  text-align: left;
+}
+.codex-sec-btn:hover { background: var(--panel-2); }
+.codex-sec-btn:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+/* 次级项比章行低一档：缩进 + 降色（照旧站 .side-g 的 padding-left: 14px）。
+   下面那条 .on 是必须的：两条选择器权重一样，后写的这条会把 .codex-entry.on 的
+   强调色盖掉，高亮就变成"比旁边还暗"的了。 */
+.codex-tree .codex-entry { padding-left: 16px; color: var(--dim); }
+.codex-tree .codex-entry.on { color: var(--accent-ink); }
+
+/* ── 图鉴浮层 ─────────────────────────────────────────────────────────
+ *
+ * 盖在编辑区上，**不是遮罩弹窗**：点外面就关，编辑区一直看得见（不加 #scrim ——
+ * 它在 ≥940px 被 display:none !important 关掉了）。
+
+ * z-index 必须是 35 < x < 40，不是随手取的：
+ *     30  .scrim（窄屏遮罩）      浮层要盖住它
+ *     35  窄屏抽屉                浮层要盖住它
+ *     40  .popover（模板 / ⚙）    它 fixed 在屏幕右上角，**正好落在浮层覆盖的
+ *                                 范围里**；浮层 ≥40 就会把弹层盖住，看起来像
+ *                                 按钮坏了
+ *     50  .toast                  复制/插入的反馈全靠它，被盖住就白报了
+ *
+ * left 缩进一个侧栏宽度，是让编辑区露出来一圈。窄屏侧栏收成抽屉，那边没有这一列
+ * 宽度，所以下面那个断点里要单独收回去，否则左边留一条空白。 */
+.codex-modal {
+  position: fixed;
+  top: calc(var(--topbar-h) + 6px);
+  right: 8px;
+  bottom: calc(var(--status-h) + 6px);
+  left: calc(var(--sidebar-w) + 10px);
+  z-index: 38;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  box-shadow: var(--shot-lg);
+  overflow: hidden;
+}
+/* 它是 tabindex="-1" 的聚焦容器，别给它画一个框 */
+.codex-modal:focus { outline: none; }
+
+/* 排列密度三档。照旧图鉴站的形状（属性 + CSS token 换挡），但**挂在浮层上、
+   不挂 :root** —— 旧站整站只有图鉴，这里 :root 上的 data-density 会漏进编辑器
+   和另外两个页签。标准档 = 属性被删掉（JS 那边 applyDensity() 就是这么写的），
+   所以下面只有宽松/紧凑两条覆盖。
+   换挡只动这四个 token，布局规则一行都不碰 —— .codex-group-h 那几条
+   grid-column: 1 / -1 跟列数无关，仍然是整行。 */
+.codex-modal {
+  --cx-fs: .86em;
+  --cx-py: 4px;
+  --cx-col: 260px;
+  --cx-gap: 8px;
+}
+.codex-modal[data-density="loose"] {
+  --cx-fs: .93em;
+  --cx-py: 7px;
+  --cx-col: 340px;
+  --cx-gap: 10px;
+}
+.codex-modal[data-density="tight"] {
+  --cx-fs: .80em;
+  --cx-py: 2px;
+  --cx-col: 190px;
+  --cx-gap: 6px;
+}
+
+.codex-mhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.codex-mtitle {
+  font-weight: 650;
+  font-size: .88em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.codex-mclose {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: var(--dim);
+  font-size: .9em;
+  line-height: 1;
+}
+.codex-mclose:hover { background: var(--panel-2); color: var(--text); }
+
+/* 搜索框 + 排列密度。flex-wrap 让窄屏自动折成两行，而不是把搜索框挤成一条缝 ——
+   所以 .codex-q 的基准宽度给的是**像素**不是 auto。
+   （这排里原先还有第三个东西：「☑ 范围」按钮 + 贴在这儿的小浮层。2026-09-22 跟
+   整套搜索范围一起删了，`.codex-mbar` 不再需要 position:relative 给谁当地标。） */
+.codex-mbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.codex-mbar .seg { margin: 0; }    /* .seg-sm 自带上下 margin，这里靠 flex 对齐 */
+
+/* 搜索框。它只活在 .codex-mbar 里，所以宽度直接按 flex 写，不必先 width:100%
+   再被下面那条覆盖回来（min-width:0 是 flex 子项能收缩的必要条件）。 */
+.codex-q {
+  flex: 1 1 180px;
+  min-width: 0;
   font: inherit;
   font-size: .86em;
   padding: 6px 9px;
@@ -386,6 +1055,18 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   color: var(--text);
 }
 .codex-q:focus { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+
+/* ── 搜索范围（筛选）· 已删 ──────────────────────────────────────────
+ *
+ * 这一段（.codex-fbtn 按钮 → .codex-fpop 小浮层 → .codex-fchk 勾选项 →
+ * .codex-facts/.codex-fact 全选清空 → .codex-fnote 说明）是照旧图鉴站的「搜索范围」，
+ * 2026-09-22 整段拆掉。用户原话：「不需要筛选范围按钮」，外加「搜索仅允许在当前类别里
+ * 搜寻代码」—— 搜索的作用域**就是**浮层当前那一类（codex-panel.js 的 searchScope），
+ * 没有第二个可以跟它不一致的数，也就没有"范围"这个界面。
+ *
+ * ⚠ 别照着旧图鉴站把这几条抄回来。要恢复"跨类别搜索"的话，那不是加回一个筛选器就
+ * 完事 —— 搜索入口本身是用户点名删掉的。
+ */
 
 .seg {
   display: inline-flex;
@@ -403,18 +1084,88 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 .seg button.on { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
 .seg-sm { margin: 6px 0; }
 
-.codex { margin-top: 2px; }
-.codex-out { margin-top: 2px; }
+/* 次级目录索引 + 列表，左右两列。
+   min-height:0 是 flex 子项能滚动的必要条件（少了它 .codex-out 会被内容撑高，
+   overflow-y:auto 形同虚设）。 */
+.codex-mbody {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+/* 次级目录索引（照旧图鉴站的 .side-g）：列的是**当前类别底下**的分组。
+   **宽屏整列收起来** —— 侧栏那三级目录（类别 › 大类 › 次级项）排的就是同一份东西，
+   再在浮层左边列一遍是重复（用户点名不要）。
+   ⚠ 元素照建，只是不显示：JS 那头一律照画（见 codex-panel.js「JS 只管行为，宽度只管
+   样式」那段），三种宽度下的行为都由 CSS 一处说了算。窄屏那条断点在文件更后面，
+   那里的 display:flex 天然赢过这里 —— 别把这条搬到断点后面去。
+   （原来还有个 .codex-midx-h「目录」小标题：宽屏被整列藏掉、窄屏又被 display:none，
+   两个形态下都看不见，删了。） */
+.codex-midx {
+  display: none;
+  flex: 0 0 auto;
+  width: 168px;
+  overflow-y: auto;
+  padding: 8px 4px 12px 10px;
+  border-right: 1px solid var(--line);
+}
+.codex-idx {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border-radius: 6px;
+  text-align: left;
+  font-size: .8em;
+  color: var(--dim);
+}
+.codex-idx:hover { background: var(--panel-2); }
+.codex-idx.on { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.codex-idx-t { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.codex-idx-n { flex: 0 0 auto; font-size: .88em; color: var(--faint); }
+.codex-idx.on .codex-idx-n { color: var(--accent-ink); }
+
+/* 列表用**网格**，不是满宽单列：浮层有宽度，一行只摆一条就是浪费。
+   分组标题横跨整行（grid-column: 1 / -1），天然把网格断成一段一段，
+   DOM 顺序（标题、说明、条目…）不用动。
+   ⚠ position: relative 是**承重的**：目录索引跳转算的是
+   `headerEl.offsetTop - out.offsetTop`，而 offsetTop 相对最近的**定位**祖先 ——
+   少了这条，offsetTop 相对 body，跳的位置整个是错的。旧站 .content 上就有这条。 */
+.codex-out {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  /* ⚠ 跟 `.tabpanel` 那条同一个理由（那儿写得长，看那边）：滚动条一出现就吃掉宽度，
+   * 内容跟着重排。这一处比侧栏更明显 —— 这儿是 `auto-fill` 的**网格**，宽度一变
+   * 不是文字重新折行，而是**列数整个跳一档**（切类别时 430 条 → 1048 条正好跨过
+   * 滚动条出现的那条线，一整片格子当场重排）。
+   * 预留之后内容宽度恒定，列数也就恒定。代价同样是常驻窄一个滚动条宽度。 */
+  scrollbar-gutter: stable;
+  padding: 2px 12px 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--cx-col), 1fr));
+  gap: 0 var(--cx-gap);
+  align-content: start;
+}
+.codex-sec-h, .codex-group-h, .codex-group-note, .codex-hint { grid-column: 1 / -1; }
 
 .codex-item {
   display: flex;
   align-items: baseline;
   gap: 6px;
   width: 100%;
-  padding: 4px 7px;
+  padding: var(--cx-py) 7px;
   border-radius: 6px;
   text-align: left;
-  font-size: .82em;
+  /* 跟对象树的叶子行同一档；密度档位在这一档上下浮动（--cx-py 同理）。
+     ⚠ 紧凑档列宽压到 190px 时，.codex-name 会先被挤没只剩代码 —— 已知退化点，
+     见 README。 */
+  font-size: var(--cx-fs);
+  /* 行内文字**不可选中**：长按已经变成"插入"手势，再让行内可选就会打架
+   * （按住一拖变成选词，插入手势也跟着被取消，两边都别扭）。代价见 README。 */
+  user-select: none;
 }
 .codex-item:hover { background: var(--accent-soft); }
 .codex-name { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -429,7 +1180,49 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 }
 .codex-ch { font-size: .82em; color: var(--faint); flex: 0 0 auto; }
 
-/* ── 校验面板 ───────────────────────────────────────────────────────── */
+/* 大类名：浮层现在画的是**一整个类别**，所以这是最外面那一级分隔。次级项名只在
+   大类内唯一（障碍物代码里「回忆之旅」出现两次），少了这一层就答不上来"这条属于
+   哪一类"。比 .codex-group-h 重一档，好让人一眼看出这是更外层的分段。 */
+.codex-sec-h {
+  margin: 16px 0 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: .82em;
+  font-weight: 700;
+  color: var(--text);
+}
+/* 第一块不画那条分隔线 —— 紧贴着浮层顶边，多一道横线只是噪音。 */
+.codex-sec-h:first-child { margin-top: 4px; padding-top: 0; border-top: 0; }
+
+.codex-group-h {
+  margin: 10px 0 3px;
+  font-size: .78em;
+  font-weight: 650;
+  color: var(--dim);
+}
+.codex-group-note, .codex-hint {
+  margin: 0 0 4px;
+  font-size: .74em;
+  color: var(--faint);
+  line-height: 1.45;
+}
+/* 空结果里原先有个出口按钮（「改为搜索全部代码」，.codex-hint-a）。它在的理由是
+   "范围是持久化的，上次筛完忘了改就会搜什么都搜不到" —— 范围没了，这个理由也没了：
+   搜不到就只有一个意思（这一类里确实没有），提示文案会点名是哪一类并告诉用户回侧栏
+   换一类。出口按钮跟着范围一起删。2026-09-22。 */
+
+/* 多选落地时「插入选中 N 条」的家（见 codex-panel.js 的预留说明）。
+   现在就建出来，免得那时还要重排布局。 */
+.codex-foot {
+  padding: 6px 12px 8px;
+  border-top: 1px solid var(--line);
+}
+
+/* ── 汇总条（对象栏顶上那一条）────────────────────────────────────────
+ *
+ * 只剩三档配色 + 一个标题。它原先是一整块「校验面板」的样式（列表、灰字卡、
+ * 冲突块……），那页撤掉之后那些类就没有渲染面了，一起删了 —— 留着会让下一个
+ * 读样式表的人以为还有一块界面在用它们。 */
 .chk {
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -438,10 +1231,6 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   font-size: .84em;
 }
 .chk-h { font-weight: 650; margin-bottom: 4px; }
-.chk-b { color: var(--dim); line-height: 1.5; }
-.chk-note { margin-top: 6px; font-size: .84em; color: var(--faint); line-height: 1.45; }
-.chk-list { margin: 7px 0 0; padding-left: 16px; }
-.chk-list li { margin-bottom: 3px; }
 
 .chk-ok { background: var(--accent-soft); border-color: var(--accent-line); }
 .chk-ok .chk-h { color: var(--accent-ink); }
@@ -449,14 +1238,6 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 .chk-warn .chk-h { color: var(--warn); }
 .chk-bad { background: var(--bad-soft); border-color: var(--bad); }
 .chk-bad .chk-h { color: var(--bad); }
-/* 灰字提示：跟 chk-warn 区分开 —— 它不计入「N 个失效引用」，也不改状态栏。
-   所以刻意不用 warn 那套黄色，免得看起来像出了问题。 */
-.chk-dim { background: var(--panel-2); border-color: var(--line); }
-.chk-dim .chk-h { color: var(--dim); }
-.chk-where { color: var(--faint); font-size: .86em; }
-
-.chk-conflict { margin-top: 7px; }
-.chk-cb { line-height: 1.5; }
 
 /* ── 错误横幅 ───────────────────────────────────────────────────────── */
 .errbar {
@@ -568,9 +1349,21 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 
 /* ── 窄屏：侧栏收成抽屉 ─────────────────────────────────────────────── */
 @media (max-width: 939px) {
+  /* 侧栏这一列收成抽屉之后就不再占网格列了（fixed 的元素不参与自动排布），
+     所以这里得把列收成一列 —— 否则左边会留一条 310px 的空列，编辑区被挤掉。 */
+  .app { grid-template-columns: 1fr; }
+
+  /* 抽屉跟宽屏那一列一样**贯通到底**（top: 0），不是从顶栏下面开始。
+     从 `top: var(--topbar-h)` 起的话，抽屉顶上永远空着一条 50px 的空白 ——
+     跟宽屏那个"像没加载完"的毛病是同一个，只是换到了窄屏。
+
+     代价说清楚：☰ 在顶栏最左边，抽屉一开就把它盖住了，所以关抽屉只能靠
+     **点遮罩**（.scrim 是 inset:0，顶栏那一块也算）或者再切一次页签。
+     这是抽屉这层就接受的取舍 —— 想保住 ☰ 就得让它从那 50px 下面开始，
+     而那正是上面这条要修的东西。 */
   .sidebar {
     position: fixed;
-    top: var(--topbar-h);
+    top: 0;
     bottom: 0;
     left: 0;
     z-index: 35;
@@ -580,6 +1373,75 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
     box-shadow: var(--shot-lg);
   }
   body.sidebar-open .sidebar { transform: none; }
+
+  /* 侧栏收成抽屉之后左边没有那一列宽度了，`left: calc(var(--sidebar-w) + 10px)`
+     会留一条空白。两个浮层都铺满整宽。 */
+  .codex-modal, .mdl-modal { left: 8px; }
+
+  /* 次级目录**只在窄屏露面**：基础规则里它是 display:none（宽屏跟侧栏那三级目录
+     重复，用户点名收掉），过这个断点才变回顶上一行横滑的 chip 条（仿旧图鉴站的
+     .groupbar，那边断点一过也是这么切的）。
+     这一条在文件里排在基础规则**后面**，所以 display:flex 天然赢 —— 别把基础规则
+     挪到这底下，那样宽屏就收不掉了。
+
+     窄屏为什么反而要留：侧栏这时候是收着的抽屉，顶上那条 chip 是唯一还看得见的
+     分组导航；整类 1048 条的「僵尸代码」没有它就只能硬滚。
+
+     这条**由宽度决定**，跟「搜索态」那条（JS 的 hidden）是两回事，各管各的；
+     而 hidden 照样压得住这里的 display:flex，靠的是顶上那条
+     `[hidden] { display: none !important }`。 */
+  .codex-mbody { flex-direction: column; }
+  .codex-midx {
+    width: auto;                      /* 覆盖宽屏那 168px */
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    /* 藏掉滚动条（旧站同款）：「右边还有分组」全靠下面那两条渐隐提示。 */
+    scrollbar-width: none;
+  }
+  .codex-midx::-webkit-scrollbar { display: none; }
+  .codex-idx {
+    flex: 0 0 auto;                   /* 宽屏那条占满整列宽，这里按内容撑开 */
+    width: auto;
+    align-items: center;
+    height: 29px;
+    padding: 0 11px;
+    border-radius: 15px;
+    white-space: nowrap;
+    background: var(--bg);
+    border: 1px solid transparent;
+  }
+  .codex-idx.on { border-color: var(--accent-line); }
+  /* chip 是按内容撑开的，组名不必再截断（宽屏那条 .codex-idx-t 带省略号）。 */
+  .codex-idx-t { flex: 0 0 auto; overflow: visible; }
+  /* ⚠ 列表这一栏在 column 布局里要能滚，`min-height: 0` 是**必要条件**：少了它
+     flex 子项的自动最小尺寸就是内容高度，列表被撑到 1048 行那么高、整块溢出浮层，
+     `overflow-y: auto` 形同虚设（跟 .codex-mbody 上那条同理）。
+     jsdom 不做排版，量不到这个 —— 只有静态断言 + 人眼。 */
+  .codex-out { min-height: 0; }
+
+  /* 两侧渐隐（旧站 syncBarEdges 的落点）。用 mask 而不是叠一层渐变 ——
+     条子自己就是滚动容器，叠层会跟着内容一起滚走。代价是底边那条分隔线在渐隐区里
+     也一起淡掉，看着正好也是「还没到头」的意思。 */
+  .codex-midx.can-left {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 26px, #000 100%);
+            mask-image: linear-gradient(to right, transparent 0, #000 26px, #000 100%);
+  }
+  .codex-midx.can-right {
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 26px), transparent 100%);
+            mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 26px), transparent 100%);
+  }
+  .codex-midx.can-left.can-right {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 26px,
+                                        #000 calc(100% - 26px), transparent 100%);
+            mask-image: linear-gradient(to right, transparent 0, #000 26px,
+                                        #000 calc(100% - 26px), transparent 100%);
+  }
 
   .doc-name { max-width: 26vw; }
   .editor .cm-scroller { font-size: 12.5px; }

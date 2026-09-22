@@ -9,3 +9,19 @@ node_modules/
 .DS_Store
 Thumbs.db
 *.swp
+
+# 跑无头的工具：变异批次和两个生成器。**有意不进仓库**（2026-09-22 用户：
+# 「你写的那些跑无头的tools不要跟踪，只传和项目有关的」）—— 它们只在这台机器上
+# 跑流程用，不是站点的一部分。
+#
+# ⚠ 代价是仓库里会留下指向它们的悬空路径引用，改 README / package.json 时留意：
+#   - README.md 有 9 处按路径提到 tools/mutate.js / tools/mutate-check-clean.js
+#     （含工具表那一行，以及 npm run mutate 的说明）
+#   - package.json 的 "mutate" script 指向 tools/mutate.js，裸 clone 上跑会失败
+#   - tools/check.js 的一句注释提到 tools/gen-module-docs.mjs（只是注释，不影响断言）
+#   - data/module-docs.js 是**产物且已签入**，但生成它的 gen-module-docs.mjs 没有，
+#     所以别人拿不到重跑它的办法
+tools/mutate.js
+tools/mutate-check-clean.js
+tools/gen-key-schema.mjs
+tools/gen-module-docs.mjs
