@@ -495,6 +495,10 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 .node-warn .ico { width: 13px; height: 13px; }
 .node-where { color: var(--faint); font-size: .82em; flex: 0 1 auto;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 「引用」标记（树上那一行，对象在别的文件里的模块）。.tag 是 .7em，而 .node-go
+   本身只有 .86em —— 两个 em 一乘，标记只剩 9px，比行里其它字小一大截还发虚。
+   提到 .85em 跟 .node-where 一档：它是个词，不是脚注，得看得清。 */
+.node-go .tag { font-size: .85em; }
 
 /* 删除按钮。桌面上藏到悬停为止（免得误点），触摸屏上常驻 —— 见下面那条 @media。 */
 .node-del {

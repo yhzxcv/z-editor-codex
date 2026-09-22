@@ -192,14 +192,8 @@ window.ZEditor.ModulePanel = (function () {
 
   /* open / objClass / kind / waveIndex / mode：浮层这一刻在讲哪个模块。
    * objClass 而不是 meta 对象 —— state() 要把它交给自检比对，存引用的话自检就得
-   * 跟着认识 meta 的内部结构。
-   *
-   * key 是**认人**用的（currentMeta 按它去表里找回来）：一般模块就是 objClass，
-   * 外部那一组是 `ext:<别名>`。为什么外部那组不能只靠 objClass —— 两个不同别名的
-   * 外部模块完全可能落同一个 objClass（参考文件里就是两个对象同类的），
-   * 而 objClass 又跟注册表里的条目撞得上，按 objClass 找会找**错一个模块**回来，
-   * 插下去的就是另一个别名。 */
-  var ui = { open: false, objClass: null, key: null, kind: 'module', waveIndex: 0, mode: 'insert' };
+   * 跟着认识 meta 的内部结构。 */
+  var ui = { open: false, objClass: null, kind: 'module', waveIndex: 0, mode: 'insert' };
 
   /* 改参数那一档的"认人"凭据：{ index, objclass, title }。
    * **不存对象引用** —— 结构操作之后 objects 是重新解析出来的一批新实例，留着旧引用
@@ -212,17 +206,6 @@ window.ZEditor.ModulePanel = (function () {
    * 一行也没丢下 —— 分组是收着的，但行一直在 DOM 里。 */
   var rows = [];
   var lastEntry = null;
-
-  /* ── 「本关卡已引用的外部模块」那一组 ──
-   * 内容是**这份关卡的 Modules 里指向 @LevelModules、而注册表里没有的**那些别名
-   * （数据由 main.js 从 outline.build() 的 external 推过来，见 syncExternal）。
-   * 四个变量是一套：extList 是数据，extMeta 是它的按 key 索引（浮层认人用），
-   * extBox 是那一组 DOM，extSig 是"上一份数据的指纹"—— 侧栏只建一次，重画只能是
-   * "数据真的换了"这一种情况，否则用户展开过的组会被每一次按键收回去。 */
-  var extList = [];        // 这一组的行数据（meta），已经排掉注册表里有的
-  var extBox = null;       // 那一组的 DOM
-  var extSig = '';         // 上一份数据的指纹（别名清单），一样就不重画
-  var extMeta = Object.create(null);   // key -> meta，currentMeta 认人用
 
   var modal = null, mtitle = null, msub = null, mdesc = null;
   var mkeysH = null, mkeys = null, mnotes = null, merr = null;
@@ -612,106 +595,6 @@ window.ZEditor.ModulePanel = (function () {
     return box;
   }
 
-  // ── 「本关卡已引用的外部模块」 ──────────────────────────────────────
-  //
-  // 这一组不是注册表里的东西，是**从当前关卡里读出来的**：LevelDefinition 的 Modules
-  // 数组里那些 `RTID(别名@LevelModules)`，去掉注册表已经收了的（那些已经在上面各组里
-  // 摆着，再列一遍是重复）。
-  //
-  // 为什么非要有这么一组（2026-09-22 用户提的）：这些引用**一个界面入口都没有**。
-  // 对象树里没有它们的节点（对象不在本文件，Outline 的 modules / supporting 两段都
-  // 收不进去），模块列表里也没有（注册表里没这一条）—— 一份关卡引用了什么，用户除了
-  // 翻文本没别的办法看见。而文本里那串 RTID 恰恰是最难读的东西。
-  //
-  // 它们的"逻辑不一样"在哪儿：对象定义在参考文件里，**插入只往 Modules 里追一条
-  // RTID，不新建对象**（Edit.insertModule 只在 source 为 CurrentLevel 时才建对象）。
-  // 所以详情页没有键表，只有一句提示 —— 与注册表里那几个标「引用」的模块同一套处理。
-
-  /** 这个别名在参考文件（LevelModules）里是什么类。查不到返回 null。 */
-  function externalObjClass(alias) {
-    var R = window.ZLevel.Refs;
-    var objs = (R && R.objectsOf) ? R.objectsOf('LevelModules') : null;
-    if (!Array.isArray(objs)) return null;
-    for (var i = 0; i < objs.length; i++) {
-      var o = objs[i];
-      if (o && Array.isArray(o.aliases) && o.aliases.indexOf(alias) >= 0) {
-        return o.objclass || null;
-      }
-    }
-    return null;
-  }
-
-  /** 注册表里已经收了的别名 —— 这一组要**排掉**它们（排重按别名，见文件头那段）。 */
-  function registryAliases() {
-    var M = window.ZLevel.Modules;
-    var set = Object.create(null);
-    M.moduleGroups.concat(M.eventGroups).forEach(function (g) {
-      g.items.forEach(function (m) { set[m.defaultAlias || m.objClass] = true; });
-    });
-    return set;
-  }
-
-  /**
-   * 一个外部引用 -> 一行模块。形状刻意跟注册表里的条目一致（title / objClass /
-   * defaultAlias / defaultSource），这样 row()、renderDetail()、Edit.insertModule()
-   * 三处**一行都不用为它改** —— 走的就是「引用型模块」那条现成的路。
-   *
-   * key 是这一行的身份（`ext:<别名>`）：objClass 在这 361 条里只对应 138 个类，
-   * 两个不同别名的外部模块落同一个 objClass 是常事，光靠 objClass 认人会认错。
-   */
-  function extMetaOf(item) {
-    return {
-      objClass: externalObjClass(item.alias) || item.alias,
-      key: 'ext:' + item.alias,
-      defaultAlias: item.alias,
-      defaultSource: item.source,
-      title: item.alias,
-      desc: '这份关卡已经在引用它了；对象定义在 ' + item.source + ' 里（别的文件），'
-        + '插入只再挂一条 RTID、不新建对象。'
-    };
-  }
-
-  /** 那一组 DOM（数据空的时候整组藏着，不留一个空壳组头）。 */
-  function buildExtGroup() {
-    var box = groupBox({ title: '本关卡已引用的外部模块', items: extList }, 'module');
-    box.hidden = !extList.length;
-    return box;
-  }
-
-  /**
-   * 外部那一组的数据由 main.js 推过来（每次关卡变化推一次，见 onStateChange）。
-   *
-   * **指纹一样就一个字节都不动**：侧栏是"只建一次、保住展开状态"的（见 buildSide），
-   * 而这个是唯一会变的组。每次按键都重画它，用户刚展开的那一组会当场收回去 ——
-   * 那正是 buildSide 当初不肯重建的理由。数据真的换了（换文件 / 直接改文本动了
-   * Modules）才值得重画，代价是那一刻展开状态归零，可以接受。
-   */
-  function syncExternal(list) {
-    var items = Array.isArray(list) ? list : [];
-    var known = registryAliases();
-    /* 排掉注册表里已经有的：它们在上面各组里摆着，再列一遍是同一件事说两遍。
-     * 判据是**别名**不是 objClass —— 同一类别名不同才是两个模块。 */
-    var fresh = [];
-    items.forEach(function (it) {
-      if (!it || typeof it.alias !== 'string' || !it.alias) return;
-      if (known[it.alias]) return;
-      fresh.push(extMetaOf(it));
-    });
-
-    var sig = fresh.map(function (m) { return m.key; }).join('\u0001');
-    if (sig === extSig) return;          // 没变，不碰 DOM
-    extSig = sig;
-    extList = fresh;
-    extMeta = Object.create(null);
-    fresh.forEach(function (m) { extMeta[m.key] = m; });
-
-    if (!built || !host) return;         // 侧栏还没建：buildSide 建的时候会读 extList
-    var box = buildExtGroup();
-    if (extBox && extBox.parentNode) extBox.parentNode.replaceChild(box, extBox);
-    else host.appendChild(box);          // 到不了（extBox 建侧栏时就有了），兜底不白屏
-    extBox = box;
-  }
-
   /**
    * 侧栏**只建一次**。
    *
@@ -719,22 +602,15 @@ window.ZEditor.ModulePanel = (function () {
    * 得跟着重画），代价是展开状态被丢掉。下拉搬进浮层之后侧栏就没有随关卡变的东西了,
    * 于是这里不需要任何重建路径 —— 用户展开过的组不会自己收回去。
    * 波次那份数据由浮层每次打开时现读（见 fillWave）。
-   *
-   * **唯一的例外是外部那一组**（见 syncExternal）：它的内容跟着当前关卡走，
-   * 换一份文件就成了另一批别名。所以它单拎出来，只在"别名清单真的变了"时重画。
    */
   function buildSide() {
     var M = window.ZLevel.Modules;
     host.textContent = '';
-    extBox = null;
 
     host.appendChild(el('div', 'panel-h', '插入模块'));
     host.appendChild(el('p', 'panel-note',
       '点一行看详情和键表，插不插在详情里定。标「引用」的模块对象本身在 LevelModules 里，只挂引用、不新建对象。'));
     M.moduleGroups.forEach(function (g) { host.appendChild(groupBox(g, 'module')); });
-
-    extBox = buildExtGroup();
-    host.appendChild(extBox);
 
     host.appendChild(el('div', 'panel-h', '插入波次事件'));
     host.appendChild(el('p', 'panel-note',
@@ -1410,10 +1286,6 @@ window.ZEditor.ModulePanel = (function () {
     editId = null;
     ui.waveIndex = 0;
     begin(entry);
-    /* 认人凭据在 begin **之后**定（begin 每次开都清一遍表单状态，包括它）：
-     * renderDetail 只填 objClass，而那是**显示**用的 —— 外部那一组的 objClass 可能
-     * 跟注册表里某一行的类名一模一样，认人不能靠它。 */
-    ui.key = meta.key || meta.objClass;
     renderDetail(meta);
   }
 
@@ -1447,9 +1319,6 @@ window.ZEditor.ModulePanel = (function () {
     edits = {};
     badKey = null;
     badMsg = '';
-    /* 认人凭据也清（openOverlay 紧接着会填）—— 不清的话，改参数那一档开过之后
-     * 还留着上一个模块的 key，而 currentMeta 是拿它去表里找的。 */
-    ui.key = null;
     /* 代号那一格也清空。renderDetail / renderObject 会紧接着把值填上；留在这儿是为了
      * 两档互相切换时不会带着上一个模块/对象的代号值（切过去的那一档如果没填，
      * 显示的就是上一档的名字）。 */
@@ -1553,14 +1422,10 @@ window.ZEditor.ModulePanel = (function () {
     closeOverlay();
   }
 
-  /** 浮层正开着的那个模块的元数据。按 ui.key 现去表里找 —— 存 meta 引用的话，
-   *  数据表重建过之后浮层还捏着旧对象。
-   *
-   *  注册表那两档按 objClass 找（界面上的每一行都是同一个类一条，类名就是身份）；
-   *  外部那一组按 `ext:<别名>` 找（见 ui.key 那段：那边一个类名不止一条）。 */
+  /** 浮层正开着的那个模块的元数据。按 objClass 现去表里找 —— 存 meta 引用的话，
+   *  数据表重建过之后浮层还捏着旧对象。 */
   function currentMeta() {
     var M = window.ZLevel.Modules;
-    if (ui.key && ui.key.indexOf('ext:') === 0) return extMeta[ui.key] || null;
     var groups = ui.kind === 'event' ? M.eventGroups : M.moduleGroups;
     var hit = null;
     groups.forEach(function (g) {
@@ -1599,9 +1464,6 @@ window.ZEditor.ModulePanel = (function () {
     ensure: ensure,
     /* 对象树上那个 ✎ 走这儿开**改参数**那一档（见 openObject）。 */
     openObject: openObject,
-    /* 当前关卡引用了哪些 @LevelModules 模块 —— main.js 每次关卡变化推一次
-     * （数据来自 outline.build() 的 external，见 syncExternal）。 */
-    syncExternal: syncExternal,
     /* 给自检用的只读快照。不是为了调试方便 —— check-boot 要断言
      * 「点一行开的是这个模块、浮层里画出了键表、点插入之后浮层关掉了」，它得能问出
      * "现在开着的是哪一个、键表走的是哪一档"，而不是靠读 DOM 里的 .mdl-krow 个数

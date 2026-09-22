@@ -113,6 +113,43 @@ window.ZEditor.Tree = (function () {
   }
 
   /**
+   * 「模块」段里那些**对象不在本文件**的引用行（`Modules` 里的 `RTID(别名@LevelModules)`，
+   * 数据见 js/level/outline.js 的 externalModules）。
+   *
+   * 为什么要摆出来：这些引用原先**一个界面入口都没有** —— 对象树收不进它们（对象不在
+   * 本文件，`modules` 和 `supporting` 两段都够不着），插入模块栏里也没有（那是注册表，
+   * 而注册表只认识它收了的那些别名）。一份关卡挂了哪些模块，用户除了翻文本没别的办法
+   * 看见，而文本里那串 RTID 恰恰是最难读的东西。
+   *
+   * 跟本地模块行的**区别就一处**：没有 ✎。参数在别的文件里，本文件能改的只有那一行
+   * RTID 文本 —— 画一个"点了没反应"或"改了不生效"的按钮比不画糟。这句解释挂在
+   * 行和「引用」标记的 title 上，不占版面（段底灰字用户见一次删一次，见 section 那段）。
+   *
+   * 点行跳文本（跟「失效引用」那些行同一个约定）：`obj: null` 让 main.js 的
+   * revealObject 落到 revealOrWarn 上，拿整串 RTID 去文本里找。
+   */
+  function extLeaf(item, onPick) {
+    var row = el('div', 'node');
+    var go = el('button', 'node-go');
+    go.type = 'button';
+    go.title = item.rtid + '\n对象定义在 ' + item.source + ' 里（别的文件），本文件里没有它的数据，没有可改的参数'
+      + '\n点击跳到文本里的位置';
+    /* 类名查得到就显示类名（跟上面那些本地模块的行对齐，扫一眼看得出是同类东西）；
+     * 查不到（参考数据比游戏旧、或者这个别名干脆是拼错的）退成别名 —— 但**照样列**，
+     * 那正是最该看见的一类，见 externalModules 那段。 */
+    go.appendChild(el('span', 'node-cls', item.objClass || item.alias));
+    go.appendChild(el('span', 'node-alias', item.alias));
+    var tag = el('span', 'tag tag-ref', '引用');
+    tag.title = '对象在别的文件（' + item.source + '）里，没有可改的参数';
+    go.appendChild(tag);
+    go.addEventListener('click', function () {
+      onPick({ alias: item.rtid, objclass: item.objClass || '', obj: null });
+    });
+    row.appendChild(go);
+    return row;
+  }
+
+  /**
    * 可折叠的一段。count 为 0 时默认收起，免得空段落占版面。
    *
    * opts.note 是段落底下的一句灰字。⚠ **默认不要写** —— 用户 2026-09-22 反复删的就是
@@ -231,10 +268,15 @@ window.ZEditor.Tree = (function () {
     host.appendChild(section('root', '关卡定义', null,
       [leaf(outline.root, onPick, onDelete, onEdit)]));
 
-    // 模块
-    host.appendChild(section('mods', '模块', outline.modules.length,
-      outline.modules.map(function (n) { return leaf(n, onPick, onDelete, onEdit); }),
-      { note: outline.modules.length ? null : '还没插入任何模块' }));
+    /* 模块 —— 本地对象之后接上那些"对象在别的文件"的引用（extLeaf，见上一段）。
+     * 两者同一段：对用户来说"这份关卡挂了哪些模块"就是一件事，分开摆反而要上下找。
+     * 数也合成一个数（段落标题上那个数得跟里面看得见的行数对得上）。
+     * external 缺席时当空数组：自检里有手搓 outline 直接喂 render 的调用。 */
+    var ext = outline.external || [];
+    host.appendChild(section('mods', '模块', outline.modules.length + ext.length,
+      outline.modules.map(function (n) { return leaf(n, onPick, onDelete, onEdit); })
+        .concat(ext.map(function (it) { return extLeaf(it, onPick); })),
+      { note: (outline.modules.length || ext.length) ? null : '还没插入任何模块' }));
 
     /* 波次管理器 —— 容器和它下面每一波**是一件事**，所以波次嵌在这一段里
      * （2026-09-22 用户：「对象菜单里各个波次做成可折叠状态放在波次管理器次级菜单里」）。

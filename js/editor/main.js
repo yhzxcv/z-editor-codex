@@ -136,12 +136,6 @@
       onCleanup: doCleanup,
       onEdit: onEditNode
     });
-    /* 模块栏里「本关卡已引用的外部模块」那一组 —— 它的内容跟着当前关卡走，
-     * 所以得推。**推而不是拉**：侧栏是懒建的（用户点开「模块」页签才建），
-     * 拉的话面板得反过来去问 state，而面板这个文件至今没读过 state（接缝都在这一侧）。
-     * 面板那边按别名清单的指纹判"要不要真重画"，所以每次按键推一遍是安全的
-     * （见 syncExternal）。 */
-    if (ModulePanel && ModulePanel.syncExternal) ModulePanel.syncExternal(rep.outline.external);
     // 图鉴栏**不在这里**：它跟文档状态无关，重建会丢浮层里的搜索词和打开的大类
   }
 
