@@ -52,6 +52,10 @@ window.ZEditor.Tree = (function () {
    * ✎ 跟 ✕ 一样平时淡淡的（.node-edit），悬停才实起来 —— 一行上三个按钮，
    * 全都实心的话这棵树就没法读了。但**不藏**（✕ 是 opacity:0）：跳转和改参数
    * 是两件平级的事，用户得看得见改参数这个入口在哪儿。
+   *
+   * ⚠ 「藏/淡」这一档只在有悬停能力的设备上做（css/app.css 里那条
+   *   @media (hover: hover)）；触摸屏上两个按钮都常驻实心 —— 手机上点一下会
+   *   把 :hover 粘在那一行上，靠悬停显形的按钮就成了"点过才出现"。
    */
   function leaf(node, onPick, onDelete, onEdit) {
     var row = el('div', 'node');

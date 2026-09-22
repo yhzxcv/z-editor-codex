@@ -490,35 +490,51 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 .node-where { color: var(--faint); font-size: .82em; flex: 0 1 auto;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 删除按钮：平时藏起来，悬停/键盘聚焦才出现 —— 免得误点 */
+/* 删除按钮。桌面上藏到悬停为止（免得误点），触摸屏上常驻 —— 见下面那条 @media。 */
 .node-del {
   flex: 0 0 auto;
   width: 26px;
   color: var(--faint);
   border-radius: 6px;
-  opacity: 0;
   /* 图标居中：这两个按钮没有 34px 那层壳，不居中的话图标会贴着上边缘 */
   display: grid;
   place-items: center;
 }
 .node-del .ico, .node-edit .ico { width: 14px; height: 14px; }
-.node:hover .node-del, .node-del:focus-visible { opacity: 1; }
 .node-del:hover { color: var(--bad); background: var(--bad-soft); }
 
-/* 「改这个对象的参数」。跟 ✕ 不一样，它**不藏**（.35 而不是 0）—— 跳转和改参数
-   是两件平级的事，用户得看得见这个入口在哪儿；藏起来的话没人会发现它。
+/* 「改这个对象的参数」。跟 ✕ 不一样，桌面上它**不藏**（.35 而不是 0）—— 跳转和
+   改参数是两件平级的事，用户得看得见这个入口在哪儿；藏起来的话没人会发现它。
    但也不实心：一行上三个按钮全亮着，这棵树就没法读了。 */
 .node-edit {
   flex: 0 0 auto;
   width: 26px;
   color: var(--faint);
   border-radius: 6px;
-  opacity: .35;
   display: grid;
   place-items: center;
 }
-.node:hover .node-edit, .node-edit:focus-visible { opacity: 1; }
 .node-edit:hover { color: var(--accent-line); background: var(--panel-2); }
+
+/* 「藏到悬停为止」这套只在**真有悬停能力**的设备上生效。
+ *
+ * 手机上根本没有 hover：手指点一下，浏览器会把 :hover **粘**在那一行上
+ * （sticky hover，一直粘到点别处才散）。于是 .node-del 那个 0 不透明度只在
+ * 「手指已经点中这一行之后」才被补成 1 —— 用户报的原话就是：
+ * 「手机端删除模块的 x 按键只有手指选中后才会显示」。
+ *
+ * 所以反过来写：**默认常驻**，把「藏起来」关进 @media (hover: hover)。
+ * 失败方向是有意挑的 —— 媒体特性万一不命中，结果是「一直露着」（挤一点），
+ * 而不是「一直藏着」（根本点不到）。
+ *
+ * ⚠ 不是在 (hover: none) 里补一条 opacity: 1：那种写法在认不出这个媒体特性的
+ *   浏览器上会退回「藏着」，失败方向正好反了。 */
+@media (hover: hover) {
+  .node-del { opacity: 0; }
+  .node-edit { opacity: .35; }
+  .node:hover .node-del, .node-del:focus-visible { opacity: 1; }
+  .node:hover .node-edit, .node-edit:focus-visible { opacity: 1; }
+}
 
 /* 「失效引用」那一段的行。行上只有失效的代号（红）和它出现在哪儿。
    ⚠ 字号必须在这儿说一次：这些行**不是按钮**，没有 .node-go 那层带 .86em 的壳，
