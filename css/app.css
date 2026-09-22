@@ -46,6 +46,10 @@
      浮层是 position: fixed，没法用"从某个元素往下 6px"表达，只能喂一个数。
      改这里之前先看那个函数。 */
   --topbar-h: 50px;
+  /* 跟 --topbar-h 不一样，这个是**定值**：状态栏不会换行（overflow-x: auto +
+     nowrap），.statusbar 上那条 min-height 直接读它。三个浮层的 `bottom` 也读它 ——
+     所以改这一个数，栏高和浮层位置一起动，不会像以前那样各算各的。
+     要再高/再矮就改这一行。 */
   --status-h: 30px;
 
   /* 代码字号。**中档就是这一档** —— 它没有 data-fs 属性，桌面 13px，
@@ -1450,6 +1454,17 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   color: var(--dim);
   overflow-x: auto;
   white-space: nowrap;
+  /* 2026-09-22 用户：「底端栏高度加高一点」。
+     在这之前这一条**根本没有高度** —— .shell 那一行是 auto，内容只有一行
+     .78em 的文字（约 18px），于是状态栏实际上一直比 --status-h 声明的 30px 矮
+     一大截，而三个浮层的 `bottom: calc(var(--status-h) + 6px)` 又照 30px 算，
+     两头对不上（浮层比实际栏顶高出十几个像素）。
+     现在把 --status-h 真正落到元素上：声明是多少，画出来就是多少，浮层也终于对得齐。
+
+     **min-height 而不是 height**：里面是一行 nowrap 文字，任何字号档下都高不过
+     22px（最大档 19px × .78 × 1.5），所以正常情况就是 30px；万一以后有人往里塞
+     第二行，让它长高总比裁掉强（网格那一行是 auto，跟着长）。 */
+  min-height: var(--status-h);
 }
 .st-file { font-family: var(--mono); color: var(--text); }
 .st-warn { color: var(--warn); }

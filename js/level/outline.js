@@ -136,8 +136,48 @@ window.ZLevel.Outline = (function () {
   }
 
   /**
+   * 关卡定义 `Modules` 里指向 `@LevelModules` 的那几条，按别名去重、保持原顺序。
+   * 返回 `[{alias, source, rtid}]`。
+   *
+   * 为什么单独挑出来：它们**不是本文件的对象** —— 对象定义在参考文件里。所以
+   * `modules` 段收不了它们（那一段装的是解析得开、有本地对象可点的东西），
+   * `supporting` 也收不了（那一段要求从 LevelDefinition 可达，而它们根本没有节点）。
+   * 一段都进不去，屏幕上就彻底没影了 —— 而这恰恰是「插入模块」栏该摆出来的东西。
+   *
+   * **只认 `Modules`**：`Loot` / `StageModule` / `VictoryModule` 那几个键上也会挂
+   * `@LevelModules` 的 RTID，但那是关卡定义自己的字段，不是"这份关卡挂了哪些模块"
+   * （2026-09-22 用户：「只解析 modules 里的模块，另外的 VictoryModule、StageModule
+   * 等不要管」）。拿它们当模块列出来，插进去的位置也就成了问题。
+   *
+   * 本模块**不认识注册表**（那是编辑器侧的数据），所以这里只负责"关卡的 Modules 里
+   * 有哪些外部引用"，"注册表里已经有的不要重复列"那一步过滤放在 module-panel 里。
+   *
+   * 参照文件里有没有这个别名**也不在这儿判** —— 失效引用那一档由 report.js 报，
+   * 两边各报各的。参考数据是快照，比游戏旧是常态，按"参考文件里没有"过滤会把
+   * 新版本游戏的模块整个藏掉，而那正是最需要看见的一类。
+   */
+  function externalModules(root) {
+    if (!root || !root.objdata || typeof root.objdata !== 'object') return [];
+    var mods = root.objdata.Modules;
+    if (!Array.isArray(mods)) return [];
+    var seen = Object.create(null), out = [];
+    mods.forEach(function (m) {
+      if (typeof m !== 'string') return;
+      var r = Rtid.parse(m);
+      /* 用 parse 而不是 collectRefs：构造侧（Edit.insertModule -> Rtid.build）走的
+       * 就是这一对，来回必须是同一把尺子，否则列出来一条、插进去又是一条。 */
+      if (!r || r.source !== 'LevelModules') return;
+      if (seen[r.alias]) return;
+      seen[r.alias] = true;
+      out.push({ alias: r.alias, source: r.source, rtid: r.full });
+    });
+    return out;
+  }
+
+  /**
    * 生成大纲。
-   * 返回 { root, modules, waveManager, waves, supporting, orphans, dangling, notes, total, used }
+   * 返回 { root, modules, waveManager, waves, supporting, orphans, dangling, notes,
+   *        external, total, used }
    *
    * refs 是参考数据表，三种传法**语义不同**，别记混：
    *
@@ -258,11 +298,18 @@ window.ZLevel.Outline = (function () {
       orphans: orphans,
       dangling: dangling,
       notes: notes,
+      external: externalModules(root),
       total: list.length,
       used: used.size
     };
   }
 
-  return { build: build, contextOf: contextOf, indexByAlias: indexByAlias, nodeOf: nodeOf };
+  return {
+    build: build,
+    contextOf: contextOf,
+    indexByAlias: indexByAlias,
+    nodeOf: nodeOf,
+    externalModules: externalModules
+  };
 })();
 
