@@ -45,15 +45,21 @@
       <button class="icon-btn" id="btn-fs-minus" type="button" aria-label="缩小字号"></button>
       <button class="icon-btn" id="btn-fs-plus" type="button" aria-label="放大字号"></button>
       <!-- 一组按钮收在一个盒子里：窄屏换行时**整组一起落到第二行**。
-           不收的话 flex 会按"放得下几个放几个"贪心切，结果是「撤销」单蹦一行。 -->
+           不收的话 flex 会按"放得下几个放几个"贪心切，把「撤销」单甩到第二行去。 -->
       <div class="tb-actions">
         <button class="btn btn-sm" id="btn-open" type="button">打开</button>
         <button class="btn btn-sm" id="btn-templates" type="button" aria-haspopup="true">模板</button>
         <button class="btn btn-sm" id="btn-undo" type="button" disabled>撤销</button>
         <button class="btn btn-sm" id="btn-redo" type="button" disabled>重做</button>
         <button class="btn btn-sm btn-primary" id="btn-save" type="button">下载</button>
-        <button class="icon-btn" id="btn-settings" type="button" aria-label="设置" aria-haspopup="true"></button>
       </div>
+      <!-- ⚙ **不在** .tb-actions 里面，是这个盒子的兄弟 —— 在里面的话窄屏换行会被
+           整组带到第二行（用户报的：「设置按钮照理是和字号同一行的」）。
+           放在盒子**后面**是为了保住它在桌面右上角这个位置：⚙ 那个浮层是
+           `position: fixed; right: 8px`（没有像模板那样按按钮定位），按钮一挪远，
+           浮层就跟触发器脱开了。窄屏那边用 .tb-actions 的 order 把它换到前面去，
+           桌面这一档一个字都不用动。 -->
+      <button class="icon-btn" id="btn-settings" type="button" aria-label="设置" aria-haspopup="true"></button>
     </header>
 
     <main class="main">
