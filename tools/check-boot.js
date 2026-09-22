@@ -1475,7 +1475,7 @@ let deletedText = '';
    * 就会拿它当新对象的名字 —— 屏幕上一点异样都没有。
    *
    * （早先这一格的靶子是"插入那一档根本没有这一格"，用户要求新建模块也能命名之后那条
-   * 翻案了，对应的变异 `N51` 一起作废，见 README。） */
+   * 翻案了，对应的变异 `N51` 一起作废，见 docs/design-notes.md。） */
   {
     const insBtn = [...doc.querySelectorAll('#panel-modules .ins-main')]
       .find(b => b.querySelector('.ins-cls')
@@ -1780,7 +1780,7 @@ function keyEvent(key, code, keyCode, shift) {
   // ⚠ jsdom 测不到的：contenteditable 那条守卫。jsdom 里 isContentEditable
   //   是 undefined（contentEditable 也不实现），所以 CM 的编辑器内容区在
   //   浏览器里靠 isContentEditable 命中，在 jsdom 里命中的是……命中不了。
-  //   这条守卫只能靠人眼在浏览器里过（见 README 的手工验证清单）。
+  //   这条守卫只能靠人眼在浏览器里过（见 docs/design-notes.md 的手工验证清单）。
 }
 
 /* 5i. 侧栏：图鉴的入口索引 + 浮层，以及合并后失效引用只数一遍。

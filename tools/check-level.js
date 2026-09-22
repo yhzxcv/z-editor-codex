@@ -1158,7 +1158,8 @@ console.log('\n外部参考文件');
 }
 {
   /* 与上游逐字节对账。参考文件 7.6 MB 不进 fixtures（放一份仓库就翻倍），
-   * 所以这条只在有 Z-Editor 检出时跑；没有就**明说跳过**，不静默降级（README 的规矩）。 */
+   * 所以这条只在有 Z-Editor 检出时跑；没有就**明说跳过**，不静默降级
+   * （docs/design-notes.md 的规矩）。 */
   const refDir = process.env.Z_EDITOR_REF
     ? path.join(process.env.Z_EDITOR_REF, 'app/src/main/assets/reference')
     : 'E:/code/PVZ2LevelEditor/app/src/main/assets/reference';

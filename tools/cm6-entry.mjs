@@ -2,7 +2,8 @@
  *
  * 只做一件事：把用得到的 CM6 能力挂到 window.CM 上，供传统 <script> 使用。
  * 之所以要打包，是因为 CM6 只发 ESM —— 而 ES module 在 file:// 下会被 CORS 拦掉，
- * 那正是本站一直用传统 script 的原因（见 README「为什么数据是 .js 而不是 .json」）。
+ * 那正是本站一直用传统 script 的原因（见 docs/design-notes.md「为什么图鉴数据是
+ * `.js` 而不是 `.json`」）。
  * 打成一个 IIFE 之后，「双击 index.html 就能跑」这条性质得以保留。
  *
  * 注意 basicSetup 已经包含大部分常用扩展（行号、撤销栈、括号匹配、自动补全、

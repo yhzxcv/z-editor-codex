@@ -17,12 +17,12 @@ Thumbs.db
 # ⚠ 代价是仓库里留下指不到东西的路径引用。**全是注释和文档，不影响任何断言**，
 #   所以不用去"修"；但改这几个文件时别以为文件丢了。完整清单（2026-09-22 核过）：
 #   mutate.js / mutate-check-clean.js ——
-#     - README.md :187 :435 :490 :669 :699 :702 :787 :795 :1148（含工具表那一行）
+#     - docs/design-notes.md :185 :433 :488 :667 :697 :700 :785 :793 :1146（含工具表那行）
 #     - package.json :12-13  "mutate": "node tools/mutate.js"，裸 clone 上跑会失败
-#     - js/editor/codex-panel.js :49 :68 :474（引用 M14/M15/M20 的期望文案）
+#     - js/editor/codex-panel.js :50 :69 :475（引用 M14/M15/M20 的期望文案）
 #     - tools/check-boot.js :1796（M14~M17、M20~M23）、:2635（N1~N9）
 #   gen-module-docs.mjs ——
-#     - README.md :551 :578 :1677
+#     - docs/design-notes.md :549 :576 :1675
 #     - data/module-docs.js :3（**产物且已签入**，但生成它的脚本没有，
 #       所以别人拿不到重跑它的办法）、tools/check.js :165
 #   gen-key-schema.mjs —— 没有任何地方引用它，删掉也不留痕

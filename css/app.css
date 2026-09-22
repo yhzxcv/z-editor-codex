@@ -234,7 +234,7 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
    * 这条在那边是空转 —— 那正是想要的结果，别去掉。
    *
    * 这件事 jsdom 量不到（它不做排版，也不知道滚动条有多宽），只能靠人眼：
-   * README 手工验证清单第 21 条。 */
+   * docs/design-notes.md 手工验证清单第 21 条。 */
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
   padding: 10px;
@@ -1161,10 +1161,10 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   text-align: left;
   /* 跟对象树的叶子行同一档；密度档位在这一档上下浮动（--cx-py 同理）。
      ⚠ 紧凑档列宽压到 190px 时，.codex-name 会先被挤没只剩代码 —— 已知退化点，
-     见 README。 */
+     见 docs/design-notes.md。 */
   font-size: var(--cx-fs);
   /* 行内文字**不可选中**：长按已经变成"插入"手势，再让行内可选就会打架
-   * （按住一拖变成选词，插入手势也跟着被取消，两边都别扭）。代价见 README。 */
+   * （按住一拖变成选词，插入手势也跟着被取消，两边都别扭）。代价见 docs/design-notes.md。 */
   user-select: none;
 }
 .codex-item:hover { background: var(--accent-soft); }

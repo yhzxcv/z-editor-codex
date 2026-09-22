@@ -17,7 +17,7 @@
  * **把来源丢掉了**。后果是 `RTID(x@ZombieTypes)` 会给本文件里叫 x 的对象
  * 造一条假边：真孤立模块被算成"有人引用"，于是「清理」永远清不掉它。
  * 这里只有**已知外部来源**（我们有参考数据的那几个）才不连边，其余一律照旧 ——
- * 见 computeReachableObjects 里的注释。跟 README 记的那两个 Z-Editor bug 同性质：
+ * 见 computeReachableObjects 里的注释。跟 docs/design-notes.md 记的那两个 Z-Editor bug 同性质：
  * 按意图修掉，留注释，留断言。
  */
 window.ZLevel = window.ZLevel || {};
