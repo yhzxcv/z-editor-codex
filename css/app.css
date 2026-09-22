@@ -500,7 +500,12 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
    提到 .85em 跟 .node-where 一档：它是个词，不是脚注，得看得清。 */
 .node-go .tag { font-size: .85em; }
 
-/* 删除按钮。桌面上藏到悬停为止（免得误点），触摸屏上常驻 —— 见下面那条 @media。 */
+/* 删除按钮。**常驻**：静止时是淡的（跟 ✎ 一样 .35），悬停/聚焦才实起来。
+ *
+ * 原先桌面上它是 `opacity: 0`，悬停才出现（为了"免得误点"）。用户 2026-09-22 说这个
+ * 要不得：能不能删是这一行**自己的属性**，不该由指针在不在上面决定 —— 那等于让用户
+ * 先移上去才被告知"这里可以删"。跟手机那条是同一个毛病（见下面那条 @media 的注释），
+ * 只不过手机上更彻底：根本没有 hover，所以那儿的按钮从来就没藏成功过。 */
 .node-del {
   flex: 0 0 auto;
   width: 26px;
@@ -513,8 +518,9 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 .node-del .ico, .node-edit .ico { width: 14px; height: 14px; }
 .node-del:hover { color: var(--bad); background: var(--bad-soft); }
 
-/* 「改这个对象的参数」。跟 ✕ 不一样，桌面上它**不藏**（.35 而不是 0）—— 跳转和
-   改参数是两件平级的事，用户得看得见这个入口在哪儿；藏起来的话没人会发现它。
+/* 「改这个对象的参数」。跟 ✕ 现在是同一档：常驻、静止时 .35。
+   跳转 / 改参数 / 删除是**平级的三件事**，三个入口得一样看得见（原先 ✕ 藏、✎ 淡，
+   读起来像"删除是次要操作"，其实它是这一行上最不能猜错的那个）。
    但也不实心：一行上三个按钮全亮着，这棵树就没法读了。 */
 .node-edit {
   flex: 0 0 auto;
@@ -526,24 +532,26 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 }
 .node-edit:hover { color: var(--accent-line); background: var(--panel-2); }
 
-/* 「藏到悬停为止」这套只在**真有悬停能力**的设备上生效。
+/* 两个按钮**都是常驻的**，两条规则的区别只在"静止时多淡"。
  *
  * 手机上根本没有 hover：手指点一下，浏览器会把 :hover **粘**在那一行上
- * （sticky hover，一直粘到点别处才散）。于是 .node-del 那个 0 不透明度只在
- * 「手指已经点中这一行之后」才被补成 1 —— 用户报的原话就是：
+ * （sticky hover，一直粘到点别处才散）。所以任何"悬停才出现"的写法在手机上都是
+ * 「手指已经点中这一行之后才显示」—— 用户报的原话就是：
  * 「手机端删除模块的 x 按键只有手指选中后才会显示」。
  *
- * 所以反过来写：**默认常驻**，把「藏起来」关进 @media (hover: hover)。
- * 失败方向是有意挑的 —— 媒体特性万一不命中，结果是「一直露着」（挤一点），
- * 而不是「一直藏着」（根本点不到）。
+ * 所以反过来写：**默认满不透明度**（常驻实心），把"淡下去"关进 @media (hover: hover)。
+ * 失败方向是有意挑的 —— 媒体特性万一不命中，结果是「一直实心」（挤一点），
+ * 而不是「一直淡到看不见」。
  *
  * ⚠ 不是在 (hover: none) 里补一条 opacity: 1：那种写法在认不出这个媒体特性的
- *   浏览器上会退回「藏着」，失败方向正好反了。 */
+ *   浏览器上会退回「淡」，失败方向正好反了。
+ *
+ * 有悬停的设备上静止 .35：一行上三个入口（跳转 / 改参数 / 删除）都亮着的话读不下去，
+ * 但**都在**，只是安静 —— 悬停或键盘聚焦才实起来。 */
 @media (hover: hover) {
-  .node-del { opacity: 0; }
-  .node-edit { opacity: .35; }
-  .node:hover .node-del, .node-del:focus-visible { opacity: 1; }
-  .node:hover .node-edit, .node-edit:focus-visible { opacity: 1; }
+  .node-del, .node-edit { opacity: .35; }
+  .node:hover .node-del, .node:hover .node-edit,
+  .node-del:focus-visible, .node-edit:focus-visible { opacity: 1; }
 }
 
 /* 「失效引用」那一段的行。行上只有失效的代号（红）和它出现在哪儿。
